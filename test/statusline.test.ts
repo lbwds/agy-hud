@@ -24,7 +24,9 @@ test("short model name strips Gemini and compacts tier", () => {
   const cases: Record<string, string> = {
     "Gemini 3.5 Flash (High)": "3.5 Flash High",
     "Gemini 3.1 Pro (High)": "3.1 Pro High",
-    "Gemini 3.5 Flash (Medium)": "3.5 Flash Med"
+    "Gemini 3.5 Flash (Medium)": "3.5 Flash Med",
+    "Claude Sonnet 4.6 (Thinking)": "Sonnet 4.6",
+    "Claude Opus 4.6 (Thinking)": "Opus 4.6"
   };
   for (const [input, want] of Object.entries(cases)) {
     assert.equal(shortModelName(input), want);
@@ -141,6 +143,34 @@ test("full remaining quota hides inactive reset countdown", () => {
   assert.match(out, /100% left/);
   assert.doesNotMatch(out, //);
   assert.doesNotMatch(out, /02:44/);
+});
+
+test("payload model wins over stale cache active model", () => {
+  const payload = fixturePayload();
+  payload.model = { display_name: "Claude Sonnet 4.6 (Thinking)" };
+  const cache: Cache = {
+    models: {
+      "Gemini 3.5 Flash (High)": {
+        remainingFraction: 0.8,
+        resetTime: "2026-05-19T12:44:00Z"
+      },
+      "Claude Sonnet 4.6 (Thinking)": {
+        remainingFraction: 1,
+        resetTime: "2026-05-19T16:44:00Z"
+      }
+    }
+  };
+
+  const out = strip(render(payload, {
+    config: defaultConfig(),
+    quota: { ...cache, active_model: "Gemini 3.5 Flash (High)" } as Cache,
+    gitBranch: "main",
+    now: new Date("2026-05-19T12:00:00Z")
+  }));
+
+  assert.match(out, /Sonnet 4\.6/);
+  assert.match(out, /100% left/);
+  assert.doesNotMatch(out, /3\.5 Flash High/);
 });
 
 test("single-line can show token detail only when it fits", () => {

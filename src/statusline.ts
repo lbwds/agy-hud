@@ -52,6 +52,8 @@ export interface RenderOptions {
 
 export function shortModelName(display: string): string {
   let short = display.split("Gemini").join("");
+  short = short.split("Claude").join("");
+  short = short.split("Thinking").join("");
   short = short.split("(").join("");
   short = short.split(")").join("");
   short = short.split("Medium").join("Med");

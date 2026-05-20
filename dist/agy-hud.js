@@ -32,6 +32,7 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 var main_exports = {};
 __export(main_exports, {
   configPaths: () => configPaths,
+  quotaCacheNeedsRefresh: () => quotaCacheNeedsRefresh,
   quotaCachePath: () => quotaCachePath,
   renderStatusline: () => renderStatusline,
   runCli: () => runCli,
@@ -41,6 +42,7 @@ module.exports = __toCommonJS(main_exports);
 var import_node_fs5 = __toESM(require("node:fs"));
 var import_node_os = __toESM(require("node:os"));
 var import_node_path4 = __toESM(require("node:path"));
+var import_node_child_process2 = require("node:child_process");
 
 // src/config.ts
 var import_node_fs = __toESM(require("node:fs"));
@@ -486,6 +488,8 @@ var colorOrange = "\x1B[38;5;208m";
 var colorMuted = "\x1B[90m";
 function shortModelName(display) {
   let short = display.split("Gemini").join("");
+  short = short.split("Claude").join("");
+  short = short.split("Thinking").join("");
   short = short.split("(").join("");
   short = short.split(")").join("");
   short = short.split("Medium").join("Med");
@@ -794,7 +798,7 @@ function title(raw) {
 }
 
 // src/main.ts
-var version = "0.1.0";
+var version = "0.1.1";
 function renderStatusline(input, cfg = defaultConfig(), cache = null) {
   if (input.trim() === "") {
     return "agy-hud";
@@ -928,6 +932,7 @@ async function runCli(args, deps = {}) {
   if (command === "statusline") {
     const cfg = loadFromPaths(configPaths());
     const [cache, ok] = load(quotaCachePath());
+    triggerBackgroundRefreshIfNeeded(quotaCachePath(), ok ? cache : null);
     const raw = await readStdin(deps.stdin ?? process.stdin);
     stdout(`${renderStatusline(raw, cfg, ok ? cache : null)}
 `);
@@ -935,6 +940,7 @@ async function runCli(args, deps = {}) {
   }
   if (command === "quota") {
     if (args[1] === "refresh") {
+      const lockPath = quotaCachePath() + ".lock";
       try {
         const result = await (deps.refreshQuota ?? refreshQuota)(quotaCachePath());
         stderr(`[quota_probe] ${result.message}
@@ -948,6 +954,13 @@ async function runCli(args, deps = {}) {
         stderr(`[quota_probe] ${error instanceof Error ? error.message : String(error)}
 `);
         return 2;
+      } finally {
+        try {
+          if (import_node_fs5.default.existsSync(lockPath)) {
+            import_node_fs5.default.unlinkSync(lockPath);
+          }
+        } catch {
+        }
       }
     }
     usage(stderr);
@@ -972,6 +985,46 @@ function readStdin(stdin) {
     });
   });
 }
+function triggerBackgroundRefreshIfNeeded(cachePath, cache) {
+  if (!quotaCacheNeedsRefresh(cache)) {
+    return;
+  }
+  const lockPath = cachePath + ".lock";
+  try {
+    if (import_node_fs5.default.existsSync(lockPath)) {
+      const stat = import_node_fs5.default.statSync(lockPath);
+      const now = /* @__PURE__ */ new Date();
+      if (now.getTime() - stat.mtimeMs < 30 * 1e3) {
+        return;
+      }
+    }
+    import_node_fs5.default.writeFileSync(lockPath, (/* @__PURE__ */ new Date()).toISOString(), "utf8");
+    const nodePath = process.argv[0];
+    const child = (0, import_node_child_process2.spawn)(nodePath, [__filename, "quota", "refresh"], {
+      detached: true,
+      stdio: "ignore"
+    });
+    child.unref();
+  } catch {
+  }
+}
+function quotaCacheNeedsRefresh(cache, now = /* @__PURE__ */ new Date()) {
+  if (!cache || !cache.timestamp) {
+    return true;
+  }
+  try {
+    const cacheTime = new Date(cache.timestamp);
+    if (Number.isNaN(cacheTime.getTime())) {
+      return true;
+    }
+    if (now.getTime() - cacheTime.getTime() > 5 * 60 * 1e3) {
+      return true;
+    }
+  } catch {
+    return true;
+  }
+  return false;
+}
 if (require.main === module) {
   runCli(process.argv.slice(2)).then((code) => {
     process.exitCode = code;
@@ -980,6 +1033,7 @@ if (require.main === module) {
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   configPaths,
+  quotaCacheNeedsRefresh,
   quotaCachePath,
   renderStatusline,
   runCli,

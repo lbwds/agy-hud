@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1
+
+- Fixed status-line model display after switching to Claude models.
+- Shortened Claude model labels to `Sonnet 4.6` and `Opus 4.6`.
+- Added non-blocking background quota cache refresh for stale or missing cache files.
+- Updated English and Chinese docs for the Node.js runtime requirement and background quota refresh behavior.
+
 ## 0.1.0
 
 - Initial TypeScript/Node.js implementation of the Antigravity CLI status-line HUD.

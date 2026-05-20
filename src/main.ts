@@ -1,13 +1,14 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import { defaultConfig, loadFromPaths, Config } from "./config";
 import { Cache, load as loadQuota } from "./quota";
 import { RefreshResult, refreshQuota } from "./quotaProbe";
 import { branch as gitBranch } from "./gitinfo";
 import { Payload, render } from "./statusline";
 
-export const version = "0.1.0";
+export const version = "0.1.1";
 
 export function renderStatusline(input: string, cfg: Config = defaultConfig(), cache: Cache | null = null): string {
   if (input.trim() === "") {
@@ -167,6 +168,7 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
   if (command === "statusline") {
     const cfg = loadFromPaths(configPaths());
     const [cache, ok] = loadQuota(quotaCachePath());
+    triggerBackgroundRefreshIfNeeded(quotaCachePath(), ok ? cache : null);
     const raw = await readStdin(deps.stdin ?? process.stdin);
     stdout(`${renderStatusline(raw, cfg, ok ? cache : null)}\n`);
     return 0;
@@ -174,6 +176,7 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
 
   if (command === "quota") {
     if (args[1] === "refresh") {
+      const lockPath = quotaCachePath() + ".lock";
       try {
         const result = await (deps.refreshQuota ?? refreshQuota)(quotaCachePath());
         stderr(`[quota_probe] ${result.message}\n`);
@@ -184,6 +187,14 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
       } catch (error) {
         stderr(`[quota_probe] ${error instanceof Error ? error.message : String(error)}\n`);
         return 2;
+      } finally {
+        try {
+          if (fs.existsSync(lockPath)) {
+            fs.unlinkSync(lockPath);
+          }
+        } catch {
+          // ignore
+        }
       }
     }
     usage(stderr);
@@ -210,6 +221,51 @@ function readStdin(stdin: NodeJS.ReadableStream): Promise<string> {
       resolve(raw);
     });
   });
+}
+
+function triggerBackgroundRefreshIfNeeded(cachePath: string, cache: Cache | null): void {
+  if (!quotaCacheNeedsRefresh(cache)) {
+    return;
+  }
+
+  const lockPath = cachePath + ".lock";
+  try {
+    if (fs.existsSync(lockPath)) {
+      const stat = fs.statSync(lockPath);
+      const now = new Date();
+      if (now.getTime() - stat.mtimeMs < 30 * 1000) {
+        return;
+      }
+    }
+    fs.writeFileSync(lockPath, new Date().toISOString(), "utf8");
+
+    const nodePath = process.argv[0];
+    const child = spawn(nodePath, [__filename, "quota", "refresh"], {
+      detached: true,
+      stdio: "ignore"
+    });
+    child.unref();
+  } catch {
+    // ignore
+  }
+}
+
+export function quotaCacheNeedsRefresh(cache: Cache | null, now: Date = new Date()): boolean {
+  if (!cache || !cache.timestamp) {
+    return true;
+  }
+  try {
+    const cacheTime = new Date(cache.timestamp);
+    if (Number.isNaN(cacheTime.getTime())) {
+      return true;
+    }
+    if (now.getTime() - cacheTime.getTime() > 5 * 60 * 1000) {
+      return true;
+    }
+  } catch {
+    return true;
+  }
+  return false;
 }
 
 if (require.main === module) {

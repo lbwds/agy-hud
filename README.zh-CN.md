@@ -80,7 +80,7 @@ agy-hud version
 agy-hud quota refresh
 ```
 
-`statusline` 不会发起任何网络请求,也不会运行缓慢的子进程。`quota refresh` 是可选的本地探测命令:它向正在运行的 Antigravity 本地服务请求 `GetUserStatus`,写入脱敏后的配额缓存;如果找不到可用的本地服务,会以非零状态退出。
+`statusline` 从标准输入以及本地配置/缓存文件渲染。如果配额缓存缺失或超过 5 分钟,它可能会启动一个 detached 的后台 `quota refresh`,但前台 HUD 渲染不会等待网络或子进程工作。`quota refresh` 会向正在运行的 Antigravity 本地服务请求 `GetUserStatus`,写入脱敏后的配额缓存;如果找不到可用的本地服务,会以非零状态退出。
 
 ## 配置
 
@@ -135,7 +135,7 @@ Antigravity 运行时,可以手动刷新缓存:
 agy-hud quota refresh
 ```
 
-刷新命令兼容两种已知的 Antigravity 本地服务形态:旧版 `language_server --csrf_token ...` 进程,以及当前的 `agy` loopback 服务。如果存在 CSRF token,它只会被用于 loopback `GetUserStatus` 请求。命令最终只保存下面这种脱敏缓存。正常的 `statusline` 渲染只读取该缓存。
+刷新命令兼容两种已知的 Antigravity 本地服务形态:旧版 `language_server --csrf_token ...` 进程,以及当前的 `agy` loopback 服务。如果存在 CSRF token,它只会被用于 loopback `GetUserStatus` 请求。命令最终只保存下面这种脱敏缓存。正常的 `statusline` 渲染会读取该缓存,并在缓存过期时后台刷新。
 
 期望的(已脱敏)缓存结构:
 
@@ -156,7 +156,7 @@ agy-hud quota refresh
 
 ## 隐私与安全
 
-`agy-hud statusline` 只读取标准输入以及本地可选的配置/缓存文件。它不会向外部传输任何数据。
+`agy-hud statusline` 从标准输入以及本地可选的配置/缓存文件渲染。它不会向外部传输状态栏 payload 数据。后台配额刷新只会访问本地 Antigravity loopback 服务。
 
 `agy-hud quota refresh` 只访问 loopback 上的本地 Antigravity 服务,不会打印 CSRF token、cookie 或原始 probe 响应。
 

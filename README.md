@@ -80,7 +80,7 @@ agy-hud version
 agy-hud quota refresh
 ```
 
-`statusline` never makes network calls and does not run slow subprocesses. `quota refresh` is the optional local probe: it asks the running Antigravity local server for `GetUserStatus`, writes the sanitized quota cache, and exits non-zero if no local server can be reached.
+`statusline` renders from stdin plus local config/cache files. If the quota cache is missing or older than five minutes, it may start a detached background `quota refresh`, but foreground HUD rendering does not wait on network or subprocess work. `quota refresh` asks the running Antigravity local server for `GetUserStatus`, writes the sanitized quota cache, and exits non-zero if no local server can be reached.
 
 ## Config
 
@@ -135,7 +135,7 @@ Refresh the cache manually when Antigravity is running:
 agy-hud quota refresh
 ```
 
-The refresh command supports both known Antigravity local-server shapes: the older `language_server --csrf_token ...` process and the current `agy` loopback server. If a CSRF token is present, it is used only for the loopback `GetUserStatus` request. The command stores only the sanitized cache shape below. Normal `statusline` rendering only reads this cache.
+The refresh command supports both known Antigravity local-server shapes: the older `language_server --csrf_token ...` process and the current `agy` loopback server. If a CSRF token is present, it is used only for the loopback `GetUserStatus` request. The command stores only the sanitized cache shape below. Normal `statusline` rendering reads this cache and may refresh it in the background when it is stale.
 
 Expected sanitized cache shape:
 
@@ -156,7 +156,7 @@ If quota data is missing, the HUD omits the usage segment instead of showing a f
 
 ## Privacy And Security
 
-`agy-hud statusline` only reads stdin plus local optional config/cache files. It does not transmit data externally.
+`agy-hud statusline` renders from stdin plus local optional config/cache files. It does not transmit status-line payload data externally. Background quota refreshes contact only the local Antigravity loopback server.
 
 `agy-hud quota refresh` contacts only the local Antigravity server on loopback and does not print CSRF tokens, cookies, or raw probe responses.
 

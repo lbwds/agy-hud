@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { strip } from "../src/ansi";
 import { defaultConfig } from "../src/config";
-import { renderStatusline, runCli } from "../src/main";
+import { quotaCacheNeedsRefresh, renderStatusline, runCli } from "../src/main";
 import { execFileSync } from "node:child_process";
 
 test("renderStatusline uses payload VCS branch", () => {
@@ -101,15 +101,15 @@ test("renderStatusline fallbacks for empty and malformed input", () => {
   }
 });
 
-test("CLI version prints 0.1.0 and empty stdin prints agy-hud", () => {
+test("CLI version prints package version and empty stdin prints agy-hud", () => {
   const entry = path.join(__dirname, "..", "src", "main.js");
-  assert.equal(execFileSync(process.execPath, [entry, "version"], { encoding: "utf8" }), "0.1.0\n");
+  assert.equal(execFileSync(process.execPath, [entry, "version"], { encoding: "utf8" }), "0.1.1\n");
   assert.equal(execFileSync(process.execPath, [entry, "statusline"], { input: "", encoding: "utf8" }), "agy-hud\n");
 });
 
 test("dist bundle CLI smoke test", () => {
   const entry = path.join(__dirname, "..", "..", "dist", "agy-hud.js");
-  assert.equal(execFileSync(process.execPath, [entry, "version"], { encoding: "utf8" }), "0.1.0\n");
+  assert.equal(execFileSync(process.execPath, [entry, "version"], { encoding: "utf8" }), "0.1.1\n");
   assert.equal(execFileSync(process.execPath, [entry, "statusline"], { input: "", encoding: "utf8" }), "agy-hud\n");
 });
 
@@ -135,4 +135,21 @@ test("CLI quota refresh does not fall through to usage", async () => {
   assert.match(stdout, /Gemini 3\.5 Flash \(High\)/);
   assert.match(stderr, /\[quota_probe\] Successfully cached processed quota data/);
   assert.doesNotMatch(stderr, /usage:/);
+});
+
+test("quota cache refresh detects stale and legacy cache shapes", () => {
+  const now = new Date("2026-05-20T04:10:00Z");
+
+  assert.equal(quotaCacheNeedsRefresh(null, now), true);
+  assert.equal(quotaCacheNeedsRefresh({ timestamp: "not-a-date", models: {} }, now), true);
+  assert.equal(quotaCacheNeedsRefresh({ timestamp: "2026-05-20T04:00:00Z", models: {} }, now), true);
+  assert.equal(quotaCacheNeedsRefresh({
+    timestamp: "2026-05-20T04:09:00Z",
+    models: {
+      "Gemini 3.5 Flash (High)": {
+        remainingFraction: 0.8,
+        resetTime: "2026-05-20T05:00:00Z"
+      }
+    }
+  }, now), false);
 });

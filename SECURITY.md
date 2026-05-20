@@ -4,4 +4,4 @@ Please do not report secrets, raw Antigravity probe payloads, cookies, CSRF toke
 
 For sensitive reports, use a private disclosure channel provided by the project maintainers.
 
-`agy-hud statusline` is designed to avoid network access and to render only sanitized HUD fields.
+`agy-hud statusline` renders only sanitized HUD fields from stdin plus local config/cache files. If the quota cache is stale or missing, it may start a detached background refresh that contacts only the local Antigravity loopback server.
