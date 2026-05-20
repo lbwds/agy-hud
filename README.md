@@ -1,4 +1,4 @@
-# agy-hud
+# agy-hud: Antigravity CLI Status-Line HUD Plugin
 
 **English** | [简体中文](README.zh-CN.md)
 

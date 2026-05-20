@@ -1,4 +1,4 @@
-# agy-hud
+# agy-hud: Antigravity CLI 状态栏 HUD 插件
 
 [English](README.md) | **简体中文**
 
