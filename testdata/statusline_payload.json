@@ -1,0 +1,30 @@
+{
+  "cwd": "agy-hud",
+  "session_id": "",
+  "conversation_id": "",
+  "transcript_path": "redacted-transcript.jsonl",
+  "model": {
+    "id": "gemini-3.5-flash-medium",
+    "display_name": "Gemini 3.5 Flash (Medium)"
+  },
+  "workspace": {
+    "current_dir": "agy-hud",
+    "project_dir": "agy-hud"
+  },
+  "version": "1.0.0",
+  "context_window": {
+    "total_input_tokens": 125000,
+    "total_output_tokens": 5000,
+    "context_window_size": 1048576,
+    "used_percentage": 12.39,
+    "remaining_percentage": 87.61
+  },
+  "product": "antigravity",
+  "agent_state": "idle",
+  "vcs": {
+    "type": "git"
+  },
+  "plan_tier": "Google AI Pro",
+  "email": "",
+  "terminal_width": 84
+}

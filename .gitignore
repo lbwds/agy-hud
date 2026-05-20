@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+
+# Test and build scratch
+/build/
+coverage.*
+
+# Local runtime and agent scratch
+.superpowers/
+.codex/
+.claude/
+.gemini/
+.learnings/
+brain/
+.codegraph
+
+# Logs and probe output
+*.log
+debug*.txt
+probe*.json
+probe*.log
+probe_results.*
+quota_probe.*
+rendered/
+
+# Local config, caches, and secrets
+config.json
+quota_cache.json
+*.cache
+*.secret
+*.secrets
+.env
+.env.*
+secrets/
+
+# OS/editor noise
+.DS_Store
+.idea/
+.vscode/

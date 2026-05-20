@@ -1,0 +1,19 @@
+{
+  "name": "agy-hud",
+  "version": "0.1.0",
+  "description": "Compact Antigravity CLI status-line HUD",
+  "license": "MIT",
+  "bin": {
+    "agy-hud": "dist/agy-hud.js"
+  },
+  "scripts": {
+    "build": "esbuild src/main.ts --bundle --platform=node --target=node18 --format=cjs --outfile=dist/agy-hud.js --banner:js='#!/usr/bin/env node'",
+    "build:test": "tsc -p tsconfig.json",
+    "test": "npm run build && npm run build:test && node --test build/test/*.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.12",
+    "esbuild": "^0.21.5",
+    "typescript": "^5.4.5"
+  }
+}

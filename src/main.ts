@@ -1,0 +1,219 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { defaultConfig, loadFromPaths, Config } from "./config";
+import { Cache, load as loadQuota } from "./quota";
+import { RefreshResult, refreshQuota } from "./quotaProbe";
+import { branch as gitBranch } from "./gitinfo";
+import { Payload, render } from "./statusline";
+
+export const version = "0.1.0";
+
+export function renderStatusline(input: string, cfg: Config = defaultConfig(), cache: Cache | null = null): string {
+  if (input.trim() === "") {
+    return "agy-hud";
+  }
+  let payload: Payload;
+  try {
+    payload = JSON.parse(input) as Payload;
+  } catch {
+    return "agy-hud";
+  }
+  let branch = "";
+  if (cfg.showGitBranch) {
+    branch = sanitizedBranch(payload.vcs?.branch ?? "");
+    if (branch === "") {
+      branch = gitBranchFromPayload(payload);
+    }
+    if (branch === "") {
+      branch = sanitizedBranch(process.env.AGY_HUD_GIT_BRANCH ?? "");
+    }
+    if (branch === "") {
+      branch = "-";
+    }
+  }
+  try {
+    return render(payload, {
+      config: cfg,
+      quota: cache,
+      gitBranch: branch
+    });
+  } catch {
+    return "agy-hud";
+  }
+}
+
+export function configPaths(): string[] {
+  const paths: string[] = [];
+  const explicit = process.env.AGY_HUD_CONFIG;
+  if (explicit) {
+    paths.push(explicit);
+  }
+  const dir = path.dirname(__filename);
+  paths.push(path.join(dir, "config.json"));
+  paths.push(path.join(dir, "..", "config.json"));
+  const xdg = process.env.XDG_CONFIG_HOME;
+  if (xdg) {
+    paths.push(path.join(xdg, "agy-hud", "config.json"));
+  }
+  const home = os.homedir();
+  if (home) {
+    paths.push(path.join(home, ".config", "agy-hud", "config.json"));
+  }
+  return paths;
+}
+
+export function quotaCachePath(): string {
+  const explicit = process.env.AGY_HUD_QUOTA_CACHE;
+  if (explicit) {
+    return explicit;
+  }
+  const home = os.homedir();
+  if (!home) {
+    return "";
+  }
+  return path.join(home, ".gemini", "antigravity-cli", "scratch", "agy-hud", "quota_cache.json");
+}
+
+function gitBranchFromPayload(payload: Payload): string {
+  const paths = [
+    payload.vcs?.root ?? "",
+    payload.workspace?.project_dir ?? "",
+    payload.workspace?.current_dir ?? "",
+    payload.cwd ?? ""
+  ];
+  if (shouldUseProcessCWD(payload.cwd ?? "")) {
+    paths.push(".");
+  }
+  for (const candidate of paths) {
+    if (!validGitCandidatePath(candidate)) {
+      continue;
+    }
+    const found = gitBranch(candidate);
+    if (found !== "") {
+      return found;
+    }
+  }
+  return "";
+}
+
+function shouldUseProcessCWD(payloadCWD: string): boolean {
+  if (payloadCWD.trim() === "") {
+    return true;
+  }
+  return path.basename(process.cwd()) === path.basename(payloadCWD);
+}
+
+function validGitCandidatePath(candidate: string): boolean {
+  const trimmed = candidate.trim();
+  if (trimmed === "") {
+    return false;
+  }
+  try {
+    return fs.statSync(trimmed).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function sanitizedBranch(raw: string): string {
+  raw = raw.trim();
+  if (raw === "" || raw.length > 80) {
+    return "";
+  }
+  for (const char of raw) {
+    const ok =
+      (char >= "a" && char <= "z") ||
+      (char >= "A" && char <= "Z") ||
+      (char >= "0" && char <= "9") ||
+      char === "/" ||
+      char === "-" ||
+      char === "_" ||
+      char === ".";
+    if (!ok) {
+      return "";
+    }
+  }
+  return raw;
+}
+
+type WriteFn = (chunk: string) => void;
+
+interface CliDeps {
+  stdin?: NodeJS.ReadableStream;
+  stdout?: WriteFn;
+  stderr?: WriteFn;
+  refreshQuota?: (cachePath: string) => Promise<RefreshResult>;
+}
+
+function usage(write: WriteFn): void {
+  write("usage: agy-hud [statusline|quota refresh|version]\n");
+}
+
+export async function runCli(args: string[], deps: CliDeps = {}): Promise<number> {
+  const stdout = deps.stdout ?? (chunk => {
+    process.stdout.write(chunk);
+  });
+  const stderr = deps.stderr ?? (chunk => {
+    process.stderr.write(chunk);
+  });
+  const command = args[0] ?? "statusline";
+
+  if (command === "version" || command === "--version" || command === "-v") {
+    stdout(`${version}\n`);
+    return 0;
+  }
+
+  if (command === "statusline") {
+    const cfg = loadFromPaths(configPaths());
+    const [cache, ok] = loadQuota(quotaCachePath());
+    const raw = await readStdin(deps.stdin ?? process.stdin);
+    stdout(`${renderStatusline(raw, cfg, ok ? cache : null)}\n`);
+    return 0;
+  }
+
+  if (command === "quota") {
+    if (args[1] === "refresh") {
+      try {
+        const result = await (deps.refreshQuota ?? refreshQuota)(quotaCachePath());
+        stderr(`[quota_probe] ${result.message}\n`);
+        if (result.ok && result.summary) {
+          stdout(`${result.summary}\n`);
+        }
+        return result.ok ? 0 : 2;
+      } catch (error) {
+        stderr(`[quota_probe] ${error instanceof Error ? error.message : String(error)}\n`);
+        return 2;
+      }
+    }
+    usage(stderr);
+    return 2;
+  }
+
+  if (command === "help" || command === "--help" || command === "-h") {
+    usage(stderr);
+    return 0;
+  }
+
+  usage(stderr);
+  return 2;
+}
+
+function readStdin(stdin: NodeJS.ReadableStream): Promise<string> {
+  return new Promise(resolve => {
+    let raw = "";
+    stdin.setEncoding("utf8");
+    stdin.on("data", chunk => {
+      raw += chunk;
+    });
+    stdin.on("end", () => {
+      resolve(raw);
+    });
+  });
+}
+
+if (require.main === module) {
+  runCli(process.argv.slice(2)).then(code => {
+    process.exitCode = code;
+  });
+}

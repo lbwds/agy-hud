@@ -1,0 +1,13 @@
+{
+  "show_model": true,
+  "show_progress_bar": true,
+  "multiline": true,
+  "color": true,
+  "debug": false,
+  "show_git_branch": true,
+  "show_cwd": true,
+  "show_agent_state": true,
+  "show_icons": true,
+  "context_value": "percent",
+  "usage_value": "remaining"
+}

@@ -1,0 +1,13 @@
+{
+  "name": "agy-hud",
+  "version": "0.1.0",
+  "description": "Compact Antigravity CLI status-line HUD",
+  "components": {
+    "hooks": [
+      {
+        "type": "status-line",
+        "command": "hooks/status-line.sh"
+      }
+    ]
+  }
+}
