@@ -8,7 +8,13 @@ import { RefreshResult, refreshQuota } from "./quotaProbe";
 import { branch as gitBranch } from "./gitinfo";
 import { Payload, render } from "./statusline";
 
-export const version = "0.1.1";
+export const version = "0.1.2";
+
+interface StatuslineRefreshState {
+  conversationId: string;
+  agentState: string;
+  lastActivityAt?: string;
+}
 
 export function renderStatusline(input: string, cfg: Config = defaultConfig(), cache: Cache | null = null): string {
   if (input.trim() === "") {
@@ -164,9 +170,11 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
 
   if (command === "statusline") {
     const cfg = loadFromPaths(configPaths());
-    const [cache, ok] = loadQuota(quotaCachePath());
-    triggerBackgroundRefreshIfNeeded(quotaCachePath(), ok ? cache : null);
     const raw = await readStdin(deps.stdin ?? process.stdin);
+    const payload = parsePayload(raw);
+    const cachePath = quotaCachePath();
+    const [cache, ok] = loadQuota(cachePath);
+    triggerBackgroundRefreshIfNeeded(cachePath, ok ? cache : null, payload);
     stdout(`${renderStatusline(raw, cfg, ok ? cache : null)}\n`);
     return 0;
   }
@@ -220,8 +228,15 @@ function readStdin(stdin: NodeJS.ReadableStream): Promise<string> {
   });
 }
 
-function triggerBackgroundRefreshIfNeeded(cachePath: string, cache: Cache | null): void {
-  if (!quotaCacheNeedsRefresh(cache)) {
+function triggerBackgroundRefreshIfNeeded(cachePath: string, cache: Cache | null, payload: Payload | null = null): void {
+  const now = new Date();
+  const statePath = refreshStatePath(cachePath);
+  const prevState = loadStatuslineRefreshState(statePath);
+  const activityRefresh = shouldTriggerActivityRefresh(cache, payload, prevState, now);
+  const nextState = mergeStatuslineRefreshState(prevState, payload, activityRefresh, now);
+  saveStatuslineRefreshState(statePath, nextState);
+
+  if (!quotaCacheNeedsRefresh(cache, now) && !activityRefresh) {
     return;
   }
 
@@ -229,8 +244,8 @@ function triggerBackgroundRefreshIfNeeded(cachePath: string, cache: Cache | null
   try {
     if (fs.existsSync(lockPath)) {
       const stat = fs.statSync(lockPath);
-      const now = new Date();
-      if (now.getTime() - stat.mtimeMs < 30 * 1000) {
+      const minLockMs = activityRefresh ? 5 * 1000 : 30 * 1000;
+      if (now.getTime() - stat.mtimeMs < minLockMs) {
         return;
       }
     }
@@ -256,16 +271,7 @@ export function quotaCacheNeedsRefresh(cache: Cache | null, now: Date = new Date
     if (Number.isNaN(cacheTime.getTime())) {
       return true;
     }
-    let hasAnyUsage = false;
-    if (cache.models) {
-      for (const quota of Object.values(cache.models)) {
-        if (quota.remainingFraction < 1.0) {
-          hasAnyUsage = true;
-          break;
-        }
-      }
-    }
-    const interval = hasAnyUsage ? 5 * 60 * 1000 : 30 * 1000;
+    const interval = cacheLooksUntouched(cache) ? 30 * 1000 : 5 * 60 * 1000;
     if (now.getTime() - cacheTime.getTime() > interval) {
       return true;
     }
@@ -273,6 +279,122 @@ export function quotaCacheNeedsRefresh(cache: Cache | null, now: Date = new Date
     return true;
   }
   return false;
+}
+
+function parsePayload(input: string): Payload | null {
+  try {
+    return JSON.parse(input) as Payload;
+  } catch {
+    return null;
+  }
+}
+
+function refreshStatePath(cachePath: string): string {
+  if (cachePath === "") {
+    return "";
+  }
+  return `${cachePath}.statusline.json`;
+}
+
+function loadStatuslineRefreshState(statePath: string): StatuslineRefreshState | null {
+  if (statePath === "") {
+    return null;
+  }
+  try {
+    const raw = fs.readFileSync(statePath, "utf8");
+    const parsed = JSON.parse(raw) as Partial<StatuslineRefreshState>;
+    return {
+      conversationId: typeof parsed.conversationId === "string" ? parsed.conversationId : "",
+      agentState: typeof parsed.agentState === "string" ? parsed.agentState : "",
+      lastActivityAt: typeof parsed.lastActivityAt === "string" ? parsed.lastActivityAt : undefined
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveStatuslineRefreshState(statePath: string, state: StatuslineRefreshState): void {
+  if (statePath === "") {
+    return;
+  }
+  try {
+    fs.mkdirSync(path.dirname(statePath), { recursive: true });
+    fs.writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+  } catch {
+    // ignore
+  }
+}
+
+function mergeStatuslineRefreshState(
+  prevState: StatuslineRefreshState | null,
+  payload: Payload | null,
+  activityRefresh: boolean,
+  now: Date
+): StatuslineRefreshState {
+  const next: StatuslineRefreshState = {
+    conversationId: prevState?.conversationId ?? "",
+    agentState: prevState?.agentState ?? "",
+    lastActivityAt: prevState?.lastActivityAt
+  };
+  if (payload) {
+    next.conversationId = (payload.conversation_id ?? "").trim();
+    next.agentState = normalizeAgentState(payload.agent_state);
+  }
+  if (activityRefresh) {
+    next.lastActivityAt = now.toISOString();
+  }
+  return next;
+}
+
+function shouldTriggerActivityRefresh(
+  cache: Cache | null,
+  payload: Payload | null,
+  prevState: StatuslineRefreshState | null,
+  now: Date
+): boolean {
+  if (!cacheLooksUntouched(cache) || !payload) {
+    return false;
+  }
+
+  const conversationId = (payload.conversation_id ?? "").trim();
+  const agentState = normalizeAgentState(payload.agent_state);
+  const prevConversationId = prevState?.conversationId ?? "";
+  const prevAgentState = prevState?.agentState ?? "";
+  const conversationChanged = conversationId !== "" && conversationId !== prevConversationId;
+  const becameActive = agentState !== "" && agentState !== "idle" && agentState !== prevAgentState;
+  const settledAfterActive = agentState === "idle" && prevAgentState !== "" && prevAgentState !== "idle";
+
+  if (!conversationChanged && !becameActive && !settledAfterActive) {
+    return false;
+  }
+
+  if (prevState?.lastActivityAt) {
+    const last = new Date(prevState.lastActivityAt);
+    if (!Number.isNaN(last.getTime()) && now.getTime() - last.getTime() < 5 * 1000) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function normalizeAgentState(raw: string | undefined): string {
+  return (raw ?? "").trim().toLowerCase();
+}
+
+function cacheLooksUntouched(cache: Cache | null): boolean {
+  if (!cache || !cache.models) {
+    return false;
+  }
+  const quotas = Object.values(cache.models);
+  if (quotas.length === 0) {
+    return true;
+  }
+  for (const quota of quotas) {
+    if (quota.remainingFraction < 1.0) {
+      return false;
+    }
+  }
+  return true;
 }
 
 if (require.main === module) {

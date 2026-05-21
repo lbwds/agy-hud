@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2
+
+- Added activity-triggered quota refresh when a live status-line payload arrives while cached quota still looks untouched.
+- Added a lightweight status-line refresh state file and debounce so full placeholder quota can recover without waiting for the normal stale-cache window.
+- Added regression coverage for a new live conversation starting with a fresh `100% left` quota cache.
+- Updated docs for activity-triggered background quota refresh behavior.
+
 ## 0.1.1
 
 - Fixed status-line model display after switching to Claude models.

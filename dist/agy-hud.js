@@ -798,7 +798,7 @@ function title(raw) {
 }
 
 // src/main.ts
-var version = "0.1.1";
+var version = "0.1.2";
 function renderStatusline(input, cfg = defaultConfig(), cache = null) {
   if (input.trim() === "") {
     return "agy-hud";
@@ -928,9 +928,11 @@ async function runCli(args, deps = {}) {
   }
   if (command === "statusline") {
     const cfg = loadFromPaths(configPaths());
-    const [cache, ok] = load(quotaCachePath());
-    triggerBackgroundRefreshIfNeeded(quotaCachePath(), ok ? cache : null);
     const raw = await readStdin(deps.stdin ?? process.stdin);
+    const payload = parsePayload(raw);
+    const cachePath = quotaCachePath();
+    const [cache, ok] = load(cachePath);
+    triggerBackgroundRefreshIfNeeded(cachePath, ok ? cache : null, payload);
     stdout(`${renderStatusline(raw, cfg, ok ? cache : null)}
 `);
     return 0;
@@ -982,16 +984,22 @@ function readStdin(stdin) {
     });
   });
 }
-function triggerBackgroundRefreshIfNeeded(cachePath, cache) {
-  if (!quotaCacheNeedsRefresh(cache)) {
+function triggerBackgroundRefreshIfNeeded(cachePath, cache, payload = null) {
+  const now = /* @__PURE__ */ new Date();
+  const statePath = refreshStatePath(cachePath);
+  const prevState = loadStatuslineRefreshState(statePath);
+  const activityRefresh = shouldTriggerActivityRefresh(cache, payload, prevState, now);
+  const nextState = mergeStatuslineRefreshState(prevState, payload, activityRefresh, now);
+  saveStatuslineRefreshState(statePath, nextState);
+  if (!quotaCacheNeedsRefresh(cache, now) && !activityRefresh) {
     return;
   }
   const lockPath = cachePath + ".lock";
   try {
     if (import_node_fs5.default.existsSync(lockPath)) {
       const stat = import_node_fs5.default.statSync(lockPath);
-      const now = /* @__PURE__ */ new Date();
-      if (now.getTime() - stat.mtimeMs < 30 * 1e3) {
+      const minLockMs = activityRefresh ? 5 * 1e3 : 30 * 1e3;
+      if (now.getTime() - stat.mtimeMs < minLockMs) {
         return;
       }
     }
@@ -1014,16 +1022,7 @@ function quotaCacheNeedsRefresh(cache, now = /* @__PURE__ */ new Date()) {
     if (Number.isNaN(cacheTime.getTime())) {
       return true;
     }
-    let hasAnyUsage = false;
-    if (cache.models) {
-      for (const quota of Object.values(cache.models)) {
-        if (quota.remainingFraction < 1) {
-          hasAnyUsage = true;
-          break;
-        }
-      }
-    }
-    const interval = hasAnyUsage ? 5 * 60 * 1e3 : 30 * 1e3;
+    const interval = cacheLooksUntouched(cache) ? 30 * 1e3 : 5 * 60 * 1e3;
     if (now.getTime() - cacheTime.getTime() > interval) {
       return true;
     }
@@ -1031,6 +1030,101 @@ function quotaCacheNeedsRefresh(cache, now = /* @__PURE__ */ new Date()) {
     return true;
   }
   return false;
+}
+function parsePayload(input) {
+  try {
+    return JSON.parse(input);
+  } catch {
+    return null;
+  }
+}
+function refreshStatePath(cachePath) {
+  if (cachePath === "") {
+    return "";
+  }
+  return `${cachePath}.statusline.json`;
+}
+function loadStatuslineRefreshState(statePath) {
+  if (statePath === "") {
+    return null;
+  }
+  try {
+    const raw = import_node_fs5.default.readFileSync(statePath, "utf8");
+    const parsed = JSON.parse(raw);
+    return {
+      conversationId: typeof parsed.conversationId === "string" ? parsed.conversationId : "",
+      agentState: typeof parsed.agentState === "string" ? parsed.agentState : "",
+      lastActivityAt: typeof parsed.lastActivityAt === "string" ? parsed.lastActivityAt : void 0
+    };
+  } catch {
+    return null;
+  }
+}
+function saveStatuslineRefreshState(statePath, state2) {
+  if (statePath === "") {
+    return;
+  }
+  try {
+    import_node_fs5.default.mkdirSync(import_node_path4.default.dirname(statePath), { recursive: true });
+    import_node_fs5.default.writeFileSync(statePath, `${JSON.stringify(state2, null, 2)}
+`, "utf8");
+  } catch {
+  }
+}
+function mergeStatuslineRefreshState(prevState, payload, activityRefresh, now) {
+  const next = {
+    conversationId: prevState?.conversationId ?? "",
+    agentState: prevState?.agentState ?? "",
+    lastActivityAt: prevState?.lastActivityAt
+  };
+  if (payload) {
+    next.conversationId = (payload.conversation_id ?? "").trim();
+    next.agentState = normalizeAgentState(payload.agent_state);
+  }
+  if (activityRefresh) {
+    next.lastActivityAt = now.toISOString();
+  }
+  return next;
+}
+function shouldTriggerActivityRefresh(cache, payload, prevState, now) {
+  if (!cacheLooksUntouched(cache) || !payload) {
+    return false;
+  }
+  const conversationId = (payload.conversation_id ?? "").trim();
+  const agentState = normalizeAgentState(payload.agent_state);
+  const prevConversationId = prevState?.conversationId ?? "";
+  const prevAgentState = prevState?.agentState ?? "";
+  const conversationChanged = conversationId !== "" && conversationId !== prevConversationId;
+  const becameActive = agentState !== "" && agentState !== "idle" && agentState !== prevAgentState;
+  const settledAfterActive = agentState === "idle" && prevAgentState !== "" && prevAgentState !== "idle";
+  if (!conversationChanged && !becameActive && !settledAfterActive) {
+    return false;
+  }
+  if (prevState?.lastActivityAt) {
+    const last = new Date(prevState.lastActivityAt);
+    if (!Number.isNaN(last.getTime()) && now.getTime() - last.getTime() < 5 * 1e3) {
+      return false;
+    }
+  }
+  return true;
+}
+function normalizeAgentState(raw) {
+  return (raw ?? "").trim().toLowerCase();
+}
+function cacheLooksUntouched(cache) {
+  if (!cache || !cache.models) {
+    return false;
+  }
+  const quotas = Object.values(cache.models);
+  if (quotas.length === 0) {
+    return true;
+  }
+  for (const quota of quotas) {
+    if (quota.remainingFraction < 1) {
+      return false;
+    }
+  }
+  return true;
 }
 if (require.main === module) {
   runCli(process.argv.slice(2)).then((code) => {

@@ -135,7 +135,7 @@ Refresh the cache manually when Antigravity is running:
 agy-hud quota refresh
 ```
 
-The refresh command supports both known Antigravity local-server shapes: the older `language_server --csrf_token ...` process and the current `agy` loopback server. If a CSRF token is present, it is used only for the loopback `GetUserStatus` request. The command stores only the sanitized cache shape below. Normal `statusline` rendering reads this cache and may refresh it in the background when it is stale.
+The refresh command supports both known Antigravity local-server shapes: the older `language_server --csrf_token ...` process and the current `agy` loopback server. If a CSRF token is present, it is used only for the loopback `GetUserStatus` request. The command stores only the sanitized cache shape below. Normal `statusline` rendering reads this cache and may refresh it in the background when it is stale. If the cache still looks untouched (`100% left` for every model), status-line activity such as a new conversation or agent state change can also trigger an immediate debounced background refresh.
 
 Expected sanitized cache shape:
 

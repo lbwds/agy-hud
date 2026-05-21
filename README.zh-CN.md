@@ -135,7 +135,7 @@ Antigravity 运行时,可以手动刷新缓存:
 agy-hud quota refresh
 ```
 
-刷新命令兼容两种已知的 Antigravity 本地服务形态:旧版 `language_server --csrf_token ...` 进程,以及当前的 `agy` loopback 服务。如果存在 CSRF token,它只会被用于 loopback `GetUserStatus` 请求。命令最终只保存下面这种脱敏缓存。正常的 `statusline` 渲染会读取该缓存,并在缓存过期时后台刷新。
+刷新命令兼容两种已知的 Antigravity 本地服务形态:旧版 `language_server --csrf_token ...` 进程,以及当前的 `agy` loopback 服务。如果存在 CSRF token,它只会被用于 loopback `GetUserStatus` 请求。命令最终只保存下面这种脱敏缓存。正常的 `statusline` 渲染会读取该缓存,并在缓存过期时后台刷新。如果缓存仍然看起来完全未消耗(所有模型都是 `100% left`),新的会话或 agent 状态变化也会触发一次带去抖的即时后台刷新。
 
 期望的(已脱敏)缓存结构:
 
