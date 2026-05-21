@@ -29,9 +29,6 @@ export function renderStatusline(input: string, cfg: Config = defaultConfig(), c
     if (branch === "") {
       branch = sanitizedBranch(process.env.AGY_HUD_GIT_BRANCH ?? "");
     }
-    if (branch === "") {
-      branch = "-";
-    }
   }
   try {
     return render(payload, {

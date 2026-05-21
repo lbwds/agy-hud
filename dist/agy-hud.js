@@ -818,9 +818,6 @@ function renderStatusline(input, cfg = defaultConfig(), cache = null) {
     if (branch2 === "") {
       branch2 = sanitizedBranch(process.env.AGY_HUD_GIT_BRANCH ?? "");
     }
-    if (branch2 === "") {
-      branch2 = "-";
-    }
   }
   try {
     return render(payload, {

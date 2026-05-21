@@ -82,7 +82,7 @@ test("renderStatusline uses explicit git branch env", () => {
   }
 });
 
-test("renderStatusline shows git fallback when branch cannot be resolved", () => {
+test("renderStatusline does not show git segment when branch cannot be resolved", () => {
   const payload = `{
     "cwd": "not-a-repo",
     "model": {"display_name": "Gemini 3.5 Flash (High)"},
@@ -92,7 +92,7 @@ test("renderStatusline shows git fallback when branch cannot be resolved", () =>
     "terminal_width": 120
   }`;
 
-  assert.match(strip(renderStatusline(payload, defaultConfig(), null)), / -/);
+  assert.doesNotMatch(strip(renderStatusline(payload, defaultConfig(), null)), //);
 });
 
 test("renderStatusline fallbacks for empty and malformed input", () => {
