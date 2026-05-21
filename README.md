@@ -53,10 +53,10 @@ If you are an AI agent installing `agy-hud` for someone, do not install silently
 
    ```
     3.5 Flash High |  Pro │  agy-hud │  main
-   Context █░░░░░░░ 12% (130k/1M) │ Usage █████░░░ 40% left  05:33 │ Thinking
+   Context █░░░░░░░ 12% (130k/1M) │ Usage █ █ ░ ░ ░ 40% left ↻ Reset 17:33 │ Thinking
    ```
 
-   Tell them what they are looking at: model and plan tier, working directory, git branch, a context bar with token detail (`context_value: both`), quota usage with reset countdown, and agent state. The default config shows a more compact `percent` context. Icons need a Nerd Font — without one they render as boxes — and the HUD degrades cleanly on narrow terminals.
+   Tell them what they are looking at: model and plan tier, working directory, git branch, a context bar with token detail (`context_value: both`), quota remaining with one discrete cell per 20%, local reset time, and agent state. The default config shows a more compact `percent` context. Icons need a Nerd Font — without one they render as boxes — and the HUD degrades cleanly on narrow terminals.
 
 2. Ask the user to confirm the effect, or whether they want to adjust `multiline`, `show_icons`, `context_value`, or `usage_value` (see [Config](#config)).
 
@@ -117,7 +117,7 @@ Display options:
 - `show_agent_state`: shows stdin `agent_state` such as `Idle`, `Thinking`, or `Auth`.
 - `show_icons`: shows Nerd Font icons. Set to `false` to fall back to plain text if your terminal font renders boxes.
 - `context_value`: `percent`, `tokens`, or `both`. Default is `percent`, so context shows current window occupancy.
-- `usage_value`: `remaining` or `percent`. Default is `remaining`, so quota text shows what is left while the bar shows usage, for example `Usage █████░░░ 40% left  05:33`.
+- `usage_value`: `remaining` or `percent`. Default is `remaining`, so quota text and the 5-cell quota bar show what is left, for example `Usage █ █ ░ ░ ░ 40% left ↻ Reset 17:33`.
 
 ## Quota Cache
 
@@ -152,7 +152,7 @@ Expected sanitized cache shape:
 }
 ```
 
-If quota data is missing, the HUD omits the usage segment instead of showing a fake limit. When quota is untouched (`100% left`), the HUD hides the reset countdown because there is no active usage window to refresh.
+If quota data is missing, the HUD omits the usage segment instead of showing a fake limit. Reset time is derived from the local API's `resetTime` field and displayed as a local clock time, because the status-line hook cannot update an already-rendered countdown without a redraw.
 
 ## Privacy And Security
 

@@ -66,7 +66,7 @@ export function formatResetCountdown(reset: string, now: Date): string {
   if (diffMs <= 0) {
     return "00:00";
   }
-  const totalMinutes = Math.ceil(diffMs / 60000);
+  const totalMinutes = Math.trunc(diffMs / 60000);
   const hours = Math.trunc(totalMinutes / 60);
   const minutes = totalMinutes % 60;
   return `${pad2(hours)}:${pad2(minutes)}`;

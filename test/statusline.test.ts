@@ -60,9 +60,28 @@ test("multiline default shape uses context and quota", () => {
   assert.doesNotMatch(lines[1], /  \|  |  │  /);
   assert.match(lines[1], /Usage/);
   assert.match(lines[1], /20% left/);
-  assert.match(lines[1], / 00:44/);
+  assert.match(lines[1], /Usage █\u2009░\u2009░\u2009░\u2009░ 20% left ↻ Reset \d\d:\d\d/);
+  assert.doesNotMatch(lines[1], /↻ 00:44/);
   assert.doesNotMatch(lines[1], /resets/);
   assert.match(lines[1], /Idle/);
+});
+
+test("remaining quota renders as five stepped blocks", () => {
+  const cache: Cache = {
+    models: {
+      "Gemini 3.5 Flash (Medium)": {
+        remainingFraction: 0.60,
+        resetTime: "2026-05-19T14:04:00Z"
+      }
+    }
+  };
+  const config = defaultConfig();
+  config.color = false;
+
+  const out = strip(renderFixture(config, cache));
+
+  assert.match(out, /Usage █\u2009█\u2009█\u2009░\u2009░ 60% left ↻ Reset \d\d:\d\d/);
+  assert.doesNotMatch(out, /↻ 02:04/);
 });
 
 test("agent state can be hidden", () => {
@@ -97,7 +116,8 @@ test("usage value can show percent used", () => {
   const config = defaultConfig();
   config.color = false;
   config.usageValue = "percent";
-  assert.match(renderFixture(config, cache), /Usage ██████░░ 80%  00:44/);
+  assert.match(renderFixture(config, cache), /Usage █\u2009█\u2009█\u2009█\u2009░ 80% ↻ Reset \d\d:\d\d/);
+  assert.doesNotMatch(renderFixture(config, cache), /↻ 00:44/);
 });
 
 test("header uses theme palette ANSI colors", () => {
@@ -118,7 +138,7 @@ test("remaining usage bar color reflects used percentage", () => {
     }
   };
   const out = renderFixture(defaultConfig(), cache);
-  assert.match(out, /Usage \x1b\[33m█████░░░\x1b\[0m/);
+  assert.match(out, /Usage \x1b\[33m█\u2009█\u2009░\u2009░\u2009░\x1b\[0m/);
   assert.match(strip(out), /40% left/);
 });
 
@@ -141,7 +161,7 @@ test("full remaining quota hides inactive reset countdown", () => {
   const out = strip(renderFixture(defaultConfig(), cache));
   assert.match(out, /Usage/);
   assert.match(out, /100% left/);
-  assert.doesNotMatch(out, //);
+  assert.doesNotMatch(out, /↻/);
   assert.doesNotMatch(out, /02:44/);
 });
 
@@ -202,7 +222,7 @@ test("icons can be disabled", () => {
   const config = defaultConfig();
   config.showIcons = false;
   const out = strip(renderFixture(config));
-  for (const icon of ["", "", "", "", ""]) {
+  for (const icon of ["", "", "", "", "↻"]) {
     assert.doesNotMatch(out, new RegExp(icon));
   }
   assert.match(out, /3\.5 Flash Med \| Pro/);

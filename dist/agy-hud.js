@@ -133,38 +133,12 @@ function usagePercent(quota) {
   if (remaining > 1) remaining = 1;
   return Math.trunc((1 - remaining) * 100 + 0.5);
 }
-function formatResetCountdown(reset, now) {
-  if (reset === "") {
-    return "";
-  }
-  const target = new Date(reset.replace("Z", "+00:00"));
-  if (Number.isNaN(target.getTime())) {
-    return "";
-  }
-  const diffMs = target.getTime() - now.getTime();
-  if (diffMs <= 0) {
-    return "00:00";
-  }
-  const totalMinutes = Math.ceil(diffMs / 6e4);
-  const hours = Math.trunc(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return `${pad2(hours)}:${pad2(minutes)}`;
-}
 function normalize(input) {
   let out = input.toLowerCase();
   for (const old of ["gemini", "(", ")", "-", "_"]) {
     out = out.split(old).join(" ");
   }
   return out.trim().split(/\s+/).filter(Boolean).join(" ");
-}
-function pad2(n) {
-  if (n < 10) {
-    return `0${formatInt(n)}`;
-  }
-  return formatInt(n);
-}
-function formatInt(n) {
-  return Math.trunc(n).toString(10);
 }
 
 // src/quotaProbe.ts
@@ -502,13 +476,12 @@ function shortModelName(display) {
 }
 function render(payload, opts) {
   const config = opts.config;
-  const now = opts.now ?? /* @__PURE__ */ new Date();
   const width = (payload.terminal_width ?? 0) <= 0 ? 80 : payload.terminal_width;
   const modelDisplay = payload.model?.display_name || payload.model?.id || "Gemini";
   const modelSegment = renderModelSegment(shortModelName(modelDisplay), payload.plan_tier ?? "", config);
   const ctxPct = clampInt(Math.trunc((payload.context_window?.used_percentage ?? 0) + 0.5));
   const stateLabel = state(payload.agent_state ?? "");
-  const [usagePct, reset, hasQuota] = quotaInfo(opts.quota, modelDisplay, now);
+  const [usagePct, reset, hasQuota] = quotaInfo(opts.quota, modelDisplay);
   if (config.multiline) {
     return renderMultiline(payload, config, width, modelSegment, ctxPct, usagePct, reset, hasQuota, opts.gitBranch ?? "", stateLabel);
   }
@@ -562,17 +535,17 @@ function renderMultiline(payload, config, width, modelSegment, ctxPct, usagePct,
         usageCompact += resetSuffix(config, reset);
       }
     }
-    line2 = joinHeader(`Context ${formatInt2(ctxPct)}%`, usageCompact, stateText);
+    line2 = joinHeader(`Context ${formatInt(ctxPct)}%`, usageCompact, stateText);
   }
   if (visibleLen(line2) > width) {
     let coreUsage = "";
     if (hasQuota) {
       coreUsage = `Use ${usageValue(config, usagePct)}`;
     }
-    line2 = join(`Ctx ${formatInt2(ctxPct)}%`, coreUsage, stateText);
+    line2 = join(`Ctx ${formatInt(ctxPct)}%`, coreUsage, stateText);
   }
   if (visibleLen(line2) > width) {
-    line2 = join(`${formatInt2(ctxPct)}%`, stateText);
+    line2 = join(`${formatInt(ctxPct)}%`, stateText);
   }
   line2 = fit(line2, width);
   return `${line1}
@@ -606,7 +579,7 @@ function renderSingleLine(payload, config, width, modelSegment, ctxPct, usagePct
     [coloredBadge, ctx, usage2, stateText],
     [coloredBadge, ctx, stateText],
     [ctx, stateText],
-    [`${formatInt2(ctxPct)}%`, stateLabel]
+    [`${formatInt(ctxPct)}%`, stateLabel]
   ];
   for (const parts of levels) {
     const line = join(...parts);
@@ -614,7 +587,7 @@ function renderSingleLine(payload, config, width, modelSegment, ctxPct, usagePct
       return line;
     }
   }
-  return fit(`${formatInt2(ctxPct)}% ${stateLabel}`, width);
+  return fit(`${formatInt(ctxPct)}% ${stateLabel}`, width);
 }
 function renderModelSegment(shortModel, rawPlan, config) {
   let plan = "Plan ?";
@@ -644,19 +617,29 @@ function renderGitSegment(branch2, config) {
   return `${withIcon(config, "\uE725 ", "")}${branch2}`;
 }
 function resetSuffix(config, reset) {
-  return ` ${withIcon(config, "\uF464 ", "")}${reset}`;
+  return ` ${withIcon(config, "\u21BB ", "")}Reset ${reset}`;
 }
 function withIcon(config, icon, fallback) {
   return config.showIcons ? icon : fallback;
 }
-function quotaInfo(cache, modelDisplay, now) {
+function quotaInfo(cache, modelDisplay) {
   const [quota, ok] = matchModel(cache, modelDisplay);
   if (!ok || quota === null) {
     return [0, "", false];
   }
   const usagePct = usagePercent(quota);
-  const reset = usagePct > 0 ? formatResetCountdown(quota.resetTime, now) : "";
+  const reset = usagePct > 0 ? formatResetClock(quota.resetTime) : "";
   return [usagePct, reset, true];
+}
+function formatResetClock(reset) {
+  if (reset === "") {
+    return "";
+  }
+  const target = new Date(reset.replace("Z", "+00:00"));
+  if (Number.isNaN(target.getTime())) {
+    return "";
+  }
+  return `${pad2(target.getHours())}:${pad2(target.getMinutes())}`;
 }
 function contextValue(config, ctx, pct) {
   const tokens = tokenDetail(ctx);
@@ -668,27 +651,28 @@ function contextValue(config, ctx, pct) {
       break;
     case "both":
       if (tokens !== "") {
-        return `${formatInt2(pct)}% ${tokens}`;
+        return `${formatInt(pct)}% ${tokens}`;
       }
       break;
   }
-  return `${formatInt2(pct)}%`;
+  return `${formatInt(pct)}%`;
 }
 function usageLabel(config, usagePct, withBar) {
   let label = "Usage ";
   if (withBar && config.showProgressBar) {
-    label += `${progressBarWithColor(usageBarPercent(config, usagePct), usagePct, 8, config.color)} `;
+    label += `${usageBar(config, usagePct)} `;
   }
   return label + usageValue(config, usagePct);
 }
 function usageValue(config, usagePct) {
   if (config.usageValue === "remaining") {
-    return `${formatInt2(100 - usagePct)}% left`;
+    return `${formatInt(100 - usagePct)}% left`;
   }
-  return `${formatInt2(usagePct)}%`;
+  return `${formatInt(usagePct)}%`;
 }
-function usageBarPercent(_config, usagePct) {
-  return usagePct;
+function usageBar(config, usagePct) {
+  const fillPct = config.usageValue === "remaining" ? 100 - usagePct : usagePct;
+  return discreteProgressBarWithColor(fillPct, usagePct, 5, config.color);
 }
 function tokenDetail(ctx) {
   const total = (ctx?.total_input_tokens ?? 0) + (ctx?.total_output_tokens ?? 0);
@@ -701,14 +685,14 @@ function tokenDetail(ctx) {
 function formatTokens(n) {
   if (n >= 1e6) {
     if (n % 1e6 === 0) {
-      return `${formatInt2(n / 1e6)}M`;
+      return `${formatInt(n / 1e6)}M`;
     }
     return `${Number((n / 1e6).toFixed(1))}M`;
   }
   if (n >= 1e3) {
-    return `${formatInt2((n + 500) / 1e3)}k`;
+    return `${formatInt((n + 500) / 1e3)}k`;
   }
-  return formatInt2(n);
+  return formatInt(n);
 }
 function progressBar(pct, width, color) {
   return progressBarWithColor(pct, pct, width, color);
@@ -720,6 +704,22 @@ function progressBarWithColor(fillPct, colorPct, width, color) {
   if (filled < 0) filled = 0;
   if (filled > width) filled = width;
   const bar = `${"\u2588".repeat(filled)}${"\u2591".repeat(width - filled)}`;
+  if (!color) {
+    return bar;
+  }
+  return colorize(bar, percentageColor(colorPct), true);
+}
+function discreteProgressBarWithColor(fillPct, colorPct, width, color) {
+  fillPct = clampInt(fillPct);
+  colorPct = clampInt(colorPct);
+  let filled = Math.trunc(fillPct / 100 * width + 0.5);
+  if (filled < 0) filled = 0;
+  if (filled > width) filled = width;
+  const cells = [];
+  for (let i = 0; i < width; i++) {
+    cells.push(i < filled ? "\u2588" : "\u2591");
+  }
+  const bar = cells.join("\u2009");
   if (!color) {
     return bar;
   }
@@ -779,8 +779,14 @@ function clampInt(n) {
   if (n > 100) return 100;
   return n;
 }
-function formatInt2(n) {
+function formatInt(n) {
   return Math.trunc(n).toString(10);
+}
+function pad2(n) {
+  if (n < 10) {
+    return `0${formatInt(n)}`;
+  }
+  return formatInt(n);
 }
 function title(raw) {
   const fields = raw.trim().split(/\s+/).filter(Boolean);

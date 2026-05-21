@@ -1,6 +1,6 @@
 import { Config } from "./config";
 import { strip, visibleLen } from "./ansi";
-import { Cache, formatResetCountdown, matchModel, usagePercent as quotaUsagePercent } from "./quota";
+import { Cache, matchModel, usagePercent as quotaUsagePercent } from "./quota";
 import path from "node:path";
 
 const colorReset = "\x1b[0m";
@@ -67,13 +67,12 @@ export function shortModelName(display: string): string {
 
 export function render(payload: Payload, opts: RenderOptions): string {
   const config = opts.config;
-  const now = opts.now ?? new Date();
   const width = (payload.terminal_width ?? 0) <= 0 ? 80 : payload.terminal_width!;
   const modelDisplay = payload.model?.display_name || payload.model?.id || "Gemini";
   const modelSegment = renderModelSegment(shortModelName(modelDisplay), payload.plan_tier ?? "", config);
   const ctxPct = clampInt(Math.trunc((payload.context_window?.used_percentage ?? 0) + 0.5));
   const stateLabel = state(payload.agent_state ?? "");
-  const [usagePct, reset, hasQuota] = quotaInfo(opts.quota, modelDisplay, now);
+  const [usagePct, reset, hasQuota] = quotaInfo(opts.quota, modelDisplay);
   if (config.multiline) {
     return renderMultiline(payload, config, width, modelSegment, ctxPct, usagePct, reset, hasQuota, opts.gitBranch ?? "", stateLabel);
   }
@@ -216,21 +215,32 @@ function renderGitSegment(branch: string, config: Config): string {
 }
 
 function resetSuffix(config: Config, reset: string): string {
-  return ` ${withIcon(config, " ", "")}${reset}`;
+  return ` ${withIcon(config, "↻ ", "")}Reset ${reset}`;
 }
 
 function withIcon(config: Config, icon: string, fallback: string): string {
   return config.showIcons ? icon : fallback;
 }
 
-function quotaInfo(cache: Cache | null | undefined, modelDisplay: string, now: Date): [number, string, boolean] {
+function quotaInfo(cache: Cache | null | undefined, modelDisplay: string): [number, string, boolean] {
   const [quota, ok] = matchModel(cache, modelDisplay);
   if (!ok || quota === null) {
     return [0, "", false];
   }
   const usagePct = quotaUsagePercent(quota);
-  const reset = usagePct > 0 ? formatResetCountdown(quota.resetTime, now) : "";
+  const reset = usagePct > 0 ? formatResetClock(quota.resetTime) : "";
   return [usagePct, reset, true];
+}
+
+function formatResetClock(reset: string): string {
+  if (reset === "") {
+    return "";
+  }
+  const target = new Date(reset.replace("Z", "+00:00"));
+  if (Number.isNaN(target.getTime())) {
+    return "";
+  }
+  return `${pad2(target.getHours())}:${pad2(target.getMinutes())}`;
 }
 
 function contextValue(config: Config, ctx: Payload["context_window"], pct: number): string {
@@ -253,7 +263,7 @@ function contextValue(config: Config, ctx: Payload["context_window"], pct: numbe
 function usageLabel(config: Config, usagePct: number, withBar: boolean): string {
   let label = "Usage ";
   if (withBar && config.showProgressBar) {
-    label += `${progressBarWithColor(usageBarPercent(config, usagePct), usagePct, 8, config.color)} `;
+    label += `${usageBar(config, usagePct)} `;
   }
   return label + usageValue(config, usagePct);
 }
@@ -265,8 +275,9 @@ function usageValue(config: Config, usagePct: number): string {
   return `${formatInt(usagePct)}%`;
 }
 
-function usageBarPercent(_config: Config, usagePct: number): number {
-  return usagePct;
+function usageBar(config: Config, usagePct: number): string {
+  const fillPct = config.usageValue === "remaining" ? 100 - usagePct : usagePct;
+  return discreteProgressBarWithColor(fillPct, usagePct, 5, config.color);
 }
 
 function tokenDetail(ctx: Payload["context_window"]): string {
@@ -302,6 +313,23 @@ function progressBarWithColor(fillPct: number, colorPct: number, width: number, 
   if (filled < 0) filled = 0;
   if (filled > width) filled = width;
   const bar = `${"█".repeat(filled)}${"░".repeat(width - filled)}`;
+  if (!color) {
+    return bar;
+  }
+  return colorize(bar, percentageColor(colorPct), true);
+}
+
+function discreteProgressBarWithColor(fillPct: number, colorPct: number, width: number, color: boolean): string {
+  fillPct = clampInt(fillPct);
+  colorPct = clampInt(colorPct);
+  let filled = Math.trunc((fillPct / 100) * width + 0.5);
+  if (filled < 0) filled = 0;
+  if (filled > width) filled = width;
+  const cells: string[] = [];
+  for (let i = 0; i < width; i++) {
+    cells.push(i < filled ? "█" : "░");
+  }
+  const bar = cells.join("\u2009");
   if (!color) {
     return bar;
   }
@@ -372,6 +400,13 @@ function clampInt(n: number): number {
 
 function formatInt(n: number): string {
   return Math.trunc(n).toString(10);
+}
+
+function pad2(n: number): string {
+  if (n < 10) {
+    return `0${formatInt(n)}`;
+  }
+  return formatInt(n);
 }
 
 function title(raw: string): string {

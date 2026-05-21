@@ -6,6 +6,7 @@ node_modules/
 coverage.*
 
 # Local runtime and agent scratch
+AGENTS.local.md
 .superpowers/
 .codex/
 .claude/
