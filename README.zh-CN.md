@@ -116,7 +116,7 @@ agy-hud quota refresh
 
 - `show_agent_state`:显示来自标准输入的 `agent_state`,例如 `Idle`、`Thinking` 或 `Auth`。
 - `show_icons`:显示 Nerd Font 图标。如果你的终端字体把图标渲染成方框,设为 `false` 可回退到纯文本。
-- `context_value`:`percent`、`tokens` 或 `both`。默认为 `percent`,即上下文显示当前窗口占用率。
+- `context_value`:`percent`、`tokens` 或 `both`。默认为 `percent`,即上下文显示当前输入侧窗口占用率。存在 token 总量时,百分比和进度条会由 `total_input_tokens / context_window_size` 计算,避免最近一次长输出让 HUD 跳动。
 - `usage_value`:`remaining` 或 `percent`。默认为 `remaining`,即配额文字和 5 个离散格都显示剩余量,例如 `Usage █ █ ░ ░ ░ 40% left ↻ Reset 17:33`。
 
 ## 配额缓存

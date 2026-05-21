@@ -116,7 +116,7 @@ Display options:
 
 - `show_agent_state`: shows stdin `agent_state` such as `Idle`, `Thinking`, or `Auth`.
 - `show_icons`: shows Nerd Font icons. Set to `false` to fall back to plain text if your terminal font renders boxes.
-- `context_value`: `percent`, `tokens`, or `both`. Default is `percent`, so context shows current window occupancy.
+- `context_value`: `percent`, `tokens`, or `both`. Default is `percent`, so context shows current input-side window occupancy. When token totals are available, the percentage and bar are derived from `total_input_tokens / context_window_size` so a large latest response does not make the HUD jump.
 - `usage_value`: `remaining` or `percent`. Default is `remaining`, so quota text and the 5-cell quota bar show what is left, for example `Usage █ █ ░ ░ ░ 40% left ↻ Reset 17:33`.
 
 ## Quota Cache

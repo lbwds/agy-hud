@@ -104,6 +104,27 @@ test("context value formats", () => {
   }
 });
 
+test("context percent ignores volatile output token count", () => {
+  const payload = fixturePayload();
+  payload.context_window = {
+    total_input_tokens: 60_000,
+    total_output_tokens: 40_000,
+    context_window_size: 1_000_000,
+    used_percentage: 10
+  };
+  const config = defaultConfig();
+  config.color = false;
+
+  const out = strip(render(payload, {
+    config,
+    gitBranch: "main",
+    now: new Date("2026-05-19T12:00:00Z")
+  }));
+
+  assert.match(out, /Context .* 6%/);
+  assert.doesNotMatch(out, /Context .* 10%/);
+});
+
 test("usage value can show percent used", () => {
   const cache: Cache = {
     models: {

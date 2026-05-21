@@ -479,7 +479,7 @@ function render(payload, opts) {
   const width = (payload.terminal_width ?? 0) <= 0 ? 80 : payload.terminal_width;
   const modelDisplay = payload.model?.display_name || payload.model?.id || "Gemini";
   const modelSegment = renderModelSegment(shortModelName(modelDisplay), payload.plan_tier ?? "", config);
-  const ctxPct = clampInt(Math.trunc((payload.context_window?.used_percentage ?? 0) + 0.5));
+  const ctxPct = contextPercent(payload.context_window);
   const stateLabel = state(payload.agent_state ?? "");
   const [usagePct, reset, hasQuota] = quotaInfo(opts.quota, modelDisplay);
   if (config.multiline) {
@@ -656,6 +656,18 @@ function contextValue(config, ctx, pct) {
       break;
   }
   return `${formatInt(pct)}%`;
+}
+function contextPercent(ctx) {
+  const inputTokens = ctx?.total_input_tokens ?? 0;
+  const windowSize = ctx?.context_window_size ?? 0;
+  if (Number.isFinite(inputTokens) && Number.isFinite(windowSize) && inputTokens > 0 && windowSize > 0) {
+    return clampInt(Math.trunc(inputTokens / windowSize * 100 + 0.5));
+  }
+  const upstream = ctx?.used_percentage ?? 0;
+  if (!Number.isFinite(upstream)) {
+    return 0;
+  }
+  return clampInt(Math.trunc(upstream + 0.5));
 }
 function usageLabel(config, usagePct, withBar) {
   let label = "Usage ";
