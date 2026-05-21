@@ -256,7 +256,17 @@ export function quotaCacheNeedsRefresh(cache: Cache | null, now: Date = new Date
     if (Number.isNaN(cacheTime.getTime())) {
       return true;
     }
-    if (now.getTime() - cacheTime.getTime() > 5 * 60 * 1000) {
+    let hasAnyUsage = false;
+    if (cache.models) {
+      for (const quota of Object.values(cache.models)) {
+        if (quota.remainingFraction < 1.0) {
+          hasAnyUsage = true;
+          break;
+        }
+      }
+    }
+    const interval = hasAnyUsage ? 5 * 60 * 1000 : 30 * 1000;
+    if (now.getTime() - cacheTime.getTime() > interval) {
       return true;
     }
   } catch {

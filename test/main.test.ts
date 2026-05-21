@@ -152,4 +152,28 @@ test("quota cache refresh detects stale and legacy cache shapes", () => {
       }
     }
   }, now), false);
+
+  // Untouched quota (all 1.0) should refresh after 30 seconds
+  const untouchedCache = {
+    timestamp: "2026-05-20T04:09:00Z", // 1 minute ago
+    models: {
+      "Gemini 3.5 Flash (High)": {
+        remainingFraction: 1.0,
+        resetTime: "2026-05-20T05:00:00Z"
+      }
+    }
+  };
+  assert.equal(quotaCacheNeedsRefresh(untouchedCache, now), true); // 1 min > 30s -> true
+
+  const untouchedFreshCache = {
+    timestamp: "2026-05-20T04:09:45Z", // 15 seconds ago
+    models: {
+      "Gemini 3.5 Flash (High)": {
+        remainingFraction: 1.0,
+        resetTime: "2026-05-20T05:00:00Z"
+      }
+    }
+  };
+  assert.equal(quotaCacheNeedsRefresh(untouchedFreshCache, now), false); // 15s < 30s -> false
 });
+
