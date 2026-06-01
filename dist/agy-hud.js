@@ -207,8 +207,8 @@ function buildQuotaCache(rawResponse, now) {
     if (label === "" || Object.keys(quotaInfo2).length === 0) {
       continue;
     }
-    const remainingFraction = typeof quotaInfo2.remainingFraction === "number" ? quotaInfo2.remainingFraction : 1;
     const resetTime = typeof quotaInfo2.resetTime === "string" ? quotaInfo2.resetTime : "";
+    const remainingFraction = typeof quotaInfo2.remainingFraction === "number" ? quotaInfo2.remainingFraction : resetTime === "" ? 1 : 0;
     models[label] = { remainingFraction, resetTime };
   }
   if (Object.keys(models).length === 0) {

@@ -90,8 +90,8 @@ export function buildQuotaCache(rawResponse: unknown, now: Date): { cache: unkno
     if (label === "" || Object.keys(quotaInfo).length === 0) {
       continue;
     }
-    const remainingFraction = typeof quotaInfo.remainingFraction === "number" ? quotaInfo.remainingFraction : 1.0;
     const resetTime = typeof quotaInfo.resetTime === "string" ? quotaInfo.resetTime : "";
+    const remainingFraction = typeof quotaInfo.remainingFraction === "number" ? quotaInfo.remainingFraction : resetTime === "" ? 1.0 : 0.0;
     models[label] = { remainingFraction, resetTime };
   }
   if (Object.keys(models).length === 0) {

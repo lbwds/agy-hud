@@ -65,6 +65,28 @@ test("buildQuotaCache summary hides reset for untouched quota", () => {
   assert.doesNotMatch(built?.summary ?? "", /Reset/);
 });
 
+test("buildQuotaCache treats reset-only quota info as exhausted", () => {
+  const built = buildQuotaCache({
+    userStatus: {
+      planStatus: { planInfo: { planName: "Pro" } },
+      cascadeModelConfigData: {
+        clientModelConfigs: [
+          {
+            label: "Gemini 3.5 Flash (Medium)",
+            quotaInfo: { resetTime: "2026-06-01T07:52:16Z" }
+          }
+        ]
+      }
+    }
+  }, new Date("2026-06-01T04:00:00Z"));
+
+  assert.deepEqual((built?.cache as { models: Record<string, { remainingFraction: number }> })?.models["Gemini 3.5 Flash (Medium)"], {
+    remainingFraction: 0,
+    resetTime: "2026-06-01T07:52:16Z"
+  });
+  assert.match(built?.summary ?? "", /Gemini 3\.5 Flash \(Medium\).*Usage\s+100%/);
+});
+
 test("refreshQuota queries first working port and writes cache", async () => {
   const writes: Record<string, string> = {};
   const result = await refreshQuota("/tmp/quota_cache.json", {
