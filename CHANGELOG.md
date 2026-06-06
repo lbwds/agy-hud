@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.3
+
+- Fixed active-model quota refresh when switching to a model whose cached quota still looked untouched inside an otherwise used mixed-model cache.
+- Added regression coverage for switching to `Claude Opus 4.6 (Thinking)` with stale `100% left` cache data.
+- Synchronized the Antigravity plugin manifest version with the bundled CLI version.
+
 ## 0.1.2
 
 - Added activity-triggered quota refresh when a live status-line payload arrives while cached quota still looks untouched.

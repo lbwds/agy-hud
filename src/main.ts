@@ -3,12 +3,12 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { defaultConfig, loadFromPaths, Config } from "./config";
-import { Cache, load as loadQuota } from "./quota";
+import { Cache, load as loadQuota, matchModel } from "./quota";
 import { RefreshResult, refreshQuota } from "./quotaProbe";
 import { branch as gitBranch } from "./gitinfo";
 import { Payload, render } from "./statusline";
 
-export const version = "0.1.2";
+export const version = "0.1.3";
 
 interface StatuslineRefreshState {
   conversationId: string;
@@ -352,7 +352,10 @@ function shouldTriggerActivityRefresh(
   prevState: StatuslineRefreshState | null,
   now: Date
 ): boolean {
-  if (!cacheLooksUntouched(cache) || !payload) {
+  if (!payload) {
+    return false;
+  }
+  if (!cacheLooksUntouched(cache) && !activeModelQuotaLooksUntouched(cache, payload)) {
     return false;
   }
 
@@ -375,6 +378,21 @@ function shouldTriggerActivityRefresh(
     }
   }
   return true;
+}
+
+function activeModelQuotaLooksUntouched(cache: Cache | null, payload: Payload): boolean {
+  if (!cache) {
+    return false;
+  }
+  const model = payload.model?.display_name || payload.model?.id || "";
+  if (model === "") {
+    return false;
+  }
+  const [quota, ok] = matchModel(cache, model);
+  if (!ok || quota === null) {
+    return true;
+  }
+  return quota.remainingFraction >= 1.0;
 }
 
 function normalizeAgentState(raw: string | undefined): string {

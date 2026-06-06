@@ -104,13 +104,13 @@ test("renderStatusline fallbacks for empty and malformed input", () => {
 
 test("CLI version prints package version and empty stdin prints agy-hud", () => {
   const entry = path.join(__dirname, "..", "src", "main.js");
-  assert.equal(execFileSync(process.execPath, [entry, "version"], { encoding: "utf8" }), "0.1.2\n");
+  assert.equal(execFileSync(process.execPath, [entry, "version"], { encoding: "utf8" }), "0.1.3\n");
   assert.equal(execFileSync(process.execPath, [entry, "statusline"], { input: "", encoding: "utf8" }), "agy-hud\n");
 });
 
 test("dist bundle CLI smoke test", () => {
   const entry = path.join(__dirname, "..", "..", "dist", "agy-hud.js");
-  assert.equal(execFileSync(process.execPath, [entry, "version"], { encoding: "utf8" }), "0.1.2\n");
+  assert.equal(execFileSync(process.execPath, [entry, "version"], { encoding: "utf8" }), "0.1.3\n");
   assert.equal(execFileSync(process.execPath, [entry, "statusline"], { input: "", encoding: "utf8" }), "agy-hud\n");
 });
 
@@ -207,6 +207,65 @@ echo "$@" >> "${markerPath}"
       cwd: "agy-hud",
       conversation_id: "conv-1",
       model: { display_name: "Gemini 3.5 Flash (High)" },
+      context_window: { used_percentage: 12 },
+      agent_state: "thinking",
+      plan_tier: "Google AI Pro",
+      terminal_width: 120
+    });
+
+    const code = await runCli(["statusline"], {
+      stdin: Readable.from([payload]),
+      stdout: () => {},
+      stderr: () => {}
+    });
+
+    assert.equal(code, 0);
+
+    for (let i = 0; i < 20 && !fs.existsSync(markerPath); i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+
+    assert.equal(fs.existsSync(markerPath), true);
+  } finally {
+    process.argv[0] = oldArgv0;
+    if (oldCacheEnv === undefined) delete process.env.AGY_HUD_QUOTA_CACHE;
+    else process.env.AGY_HUD_QUOTA_CACHE = oldCacheEnv;
+  }
+});
+
+test("statusline refreshes when active model has untouched quota in mixed cache", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agy-hud-"));
+  const cachePath = path.join(dir, "quota_cache.json");
+  const probePath = path.join(dir, "spawn-probe.sh");
+  const markerPath = path.join(dir, "spawned.txt");
+  const oldCacheEnv = process.env.AGY_HUD_QUOTA_CACHE;
+  const oldArgv0 = process.argv[0];
+
+  fs.writeFileSync(cachePath, JSON.stringify({
+    timestamp: new Date(Date.now() - 10_000).toISOString(),
+    models: {
+      "Gemini 3.5 Flash (High)": {
+        remainingFraction: 0.4,
+        resetTime: "2026-05-20T05:00:00Z"
+      },
+      "Claude Opus 4.6 (Thinking)": {
+        remainingFraction: 1,
+        resetTime: "2026-05-20T08:00:00Z"
+      }
+    }
+  }), "utf8");
+  fs.writeFileSync(probePath, `#!/bin/sh
+echo "$@" >> "${markerPath}"
+`, { encoding: "utf8", mode: 0o755 });
+
+  process.env.AGY_HUD_QUOTA_CACHE = cachePath;
+  process.argv[0] = probePath;
+
+  try {
+    const payload = JSON.stringify({
+      cwd: "agy-hud",
+      conversation_id: "conv-opus",
+      model: { display_name: "Claude Opus 4.6 (Thinking)" },
       context_window: { used_percentage: 12 },
       agent_state: "thinking",
       plan_tier: "Google AI Pro",

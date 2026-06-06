@@ -816,7 +816,7 @@ function title(raw) {
 }
 
 // src/main.ts
-var version = "0.1.2";
+var version = "0.1.3";
 function renderStatusline(input, cfg = defaultConfig(), cache = null) {
   if (input.trim() === "") {
     return "agy-hud";
@@ -1105,7 +1105,10 @@ function mergeStatuslineRefreshState(prevState, payload, activityRefresh, now) {
   return next;
 }
 function shouldTriggerActivityRefresh(cache, payload, prevState, now) {
-  if (!cacheLooksUntouched(cache) || !payload) {
+  if (!payload) {
+    return false;
+  }
+  if (!cacheLooksUntouched(cache) && !activeModelQuotaLooksUntouched(cache, payload)) {
     return false;
   }
   const conversationId = (payload.conversation_id ?? "").trim();
@@ -1125,6 +1128,20 @@ function shouldTriggerActivityRefresh(cache, payload, prevState, now) {
     }
   }
   return true;
+}
+function activeModelQuotaLooksUntouched(cache, payload) {
+  if (!cache) {
+    return false;
+  }
+  const model = payload.model?.display_name || payload.model?.id || "";
+  if (model === "") {
+    return false;
+  }
+  const [quota, ok] = matchModel(cache, model);
+  if (!ok || quota === null) {
+    return true;
+  }
+  return quota.remainingFraction >= 1;
 }
 function normalizeAgentState(raw) {
   return (raw ?? "").trim().toLowerCase();
