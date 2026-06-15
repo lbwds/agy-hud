@@ -8,7 +8,7 @@ import { RefreshResult, refreshQuota } from "./quotaProbe";
 import { branch as gitBranch } from "./gitinfo";
 import { Payload, render } from "./statusline";
 
-export const version = "0.1.3";
+export const version = "0.1.4";
 
 interface StatuslineRefreshState {
   conversationId: string;

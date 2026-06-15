@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.4
+
+- Prefer official Antigravity CLI 1.0.8+ status-line quota payloads over the local fallback cache.
+- Render quota usage with the same continuous progress bar style as context usage.
+- Added regression coverage for official Gemini and third-party quota buckets.
+- Updated English and Chinese docs for official quota payload support and fallback cache behavior.
+
 ## 0.1.3
 
 - Fixed active-model quota refresh when switching to a model whose cached quota still looked untouched inside an otherwise used mixed-model cache.

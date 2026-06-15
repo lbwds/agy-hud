@@ -28,7 +28,10 @@ export interface Payload {
     total_output_tokens?: number;
     context_window_size?: number;
     used_percentage?: number;
+    remaining_percentage?: number;
+    current_usage?: unknown;
   };
+  quota?: Record<string, OfficialQuotaBucket>;
   agent_state?: string;
   plan_tier?: string;
   terminal_width?: number;
@@ -41,6 +44,12 @@ export interface Payload {
     current_dir?: string;
     project_dir?: string;
   };
+}
+
+interface OfficialQuotaBucket {
+  remaining_fraction?: number;
+  reset_time?: string;
+  reset_in_seconds?: number;
 }
 
 export interface RenderOptions {
@@ -72,7 +81,7 @@ export function render(payload: Payload, opts: RenderOptions): string {
   const modelSegment = renderModelSegment(shortModelName(modelDisplay), payload.plan_tier ?? "", config);
   const ctxPct = contextPercent(payload.context_window);
   const stateLabel = state(payload.agent_state ?? "");
-  const [usagePct, reset, hasQuota] = quotaInfo(opts.quota, modelDisplay);
+  const [usagePct, reset, hasQuota] = quotaInfo(opts.quota, modelDisplay, payload.quota);
   if (config.multiline) {
     return renderMultiline(payload, config, width, modelSegment, ctxPct, usagePct, reset, hasQuota, opts.gitBranch ?? "", stateLabel);
   }
@@ -222,7 +231,11 @@ function withIcon(config: Config, icon: string, fallback: string): string {
   return config.showIcons ? icon : fallback;
 }
 
-function quotaInfo(cache: Cache | null | undefined, modelDisplay: string): [number, string, boolean] {
+function quotaInfo(cache: Cache | null | undefined, modelDisplay: string, officialQuota?: Record<string, OfficialQuotaBucket>): [number, string, boolean] {
+  const official = officialQuotaInfo(officialQuota, modelDisplay);
+  if (official !== null) {
+    return official;
+  }
   const [quota, ok] = matchModel(cache, modelDisplay);
   if (!ok || quota === null) {
     return [0, "", false];
@@ -230,6 +243,48 @@ function quotaInfo(cache: Cache | null | undefined, modelDisplay: string): [numb
   const usagePct = quotaUsagePercent(quota);
   const reset = usagePct > 0 ? formatResetClock(quota.resetTime) : "";
   return [usagePct, reset, true];
+}
+
+function officialQuotaInfo(officialQuota: Record<string, OfficialQuotaBucket> | undefined, modelDisplay: string): [number, string, boolean] | null {
+  if (!officialQuota) {
+    return null;
+  }
+  const keys = officialQuotaKeys(modelDisplay);
+  const buckets: OfficialQuotaBucket[] = [];
+  let sawKnownBucket = false;
+  for (const key of keys) {
+    if (!Object.prototype.hasOwnProperty.call(officialQuota, key)) {
+      continue;
+    }
+    sawKnownBucket = true;
+    const bucket = officialQuota[key];
+    if (Number.isFinite(bucket.remaining_fraction)) {
+      buckets.push(bucket);
+    }
+  }
+  if (buckets.length === 0) {
+    return sawKnownBucket ? [0, "", false] : null;
+  }
+  let selected = buckets[0];
+  for (const bucket of buckets.slice(1)) {
+    if ((bucket.remaining_fraction ?? 1) < (selected.remaining_fraction ?? 1)) {
+      selected = bucket;
+    }
+  }
+  const usagePct = quotaUsagePercent({
+    remainingFraction: selected.remaining_fraction ?? 1,
+    resetTime: selected.reset_time ?? ""
+  });
+  const reset = usagePct > 0 ? formatResetClock(selected.reset_time ?? "") : "";
+  return [usagePct, reset, true];
+}
+
+function officialQuotaKeys(modelDisplay: string): string[] {
+  const normalized = modelDisplay.toLowerCase();
+  if (normalized.includes("claude") || normalized.includes("gpt") || normalized.includes("oss")) {
+    return ["3p-5h", "3p-weekly"];
+  }
+  return ["gemini-5h", "gemini-weekly"];
 }
 
 function formatResetClock(reset: string): string {
@@ -291,7 +346,7 @@ function usageValue(config: Config, usagePct: number): string {
 
 function usageBar(config: Config, usagePct: number): string {
   const fillPct = config.usageValue === "remaining" ? 100 - usagePct : usagePct;
-  return discreteProgressBarWithColor(fillPct, usagePct, 5, config.color);
+  return progressBarWithColor(fillPct, usagePct, 8, config.color);
 }
 
 function tokenDetail(ctx: Payload["context_window"]): string {
@@ -327,23 +382,6 @@ function progressBarWithColor(fillPct: number, colorPct: number, width: number, 
   if (filled < 0) filled = 0;
   if (filled > width) filled = width;
   const bar = `${"█".repeat(filled)}${"░".repeat(width - filled)}`;
-  if (!color) {
-    return bar;
-  }
-  return colorize(bar, percentageColor(colorPct), true);
-}
-
-function discreteProgressBarWithColor(fillPct: number, colorPct: number, width: number, color: boolean): string {
-  fillPct = clampInt(fillPct);
-  colorPct = clampInt(colorPct);
-  let filled = Math.trunc((fillPct / 100) * width + 0.5);
-  if (filled < 0) filled = 0;
-  if (filled > width) filled = width;
-  const cells: string[] = [];
-  for (let i = 0; i < width; i++) {
-    cells.push(i < filled ? "█" : "░");
-  }
-  const bar = cells.join("\u2009");
   if (!color) {
     return bar;
   }

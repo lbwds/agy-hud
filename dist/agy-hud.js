@@ -481,7 +481,7 @@ function render(payload, opts) {
   const modelSegment = renderModelSegment(shortModelName(modelDisplay), payload.plan_tier ?? "", config);
   const ctxPct = contextPercent(payload.context_window);
   const stateLabel = state(payload.agent_state ?? "");
-  const [usagePct, reset, hasQuota] = quotaInfo(opts.quota, modelDisplay);
+  const [usagePct, reset, hasQuota] = quotaInfo(opts.quota, modelDisplay, payload.quota);
   if (config.multiline) {
     return renderMultiline(payload, config, width, modelSegment, ctxPct, usagePct, reset, hasQuota, opts.gitBranch ?? "", stateLabel);
   }
@@ -622,7 +622,11 @@ function resetSuffix(config, reset) {
 function withIcon(config, icon, fallback) {
   return config.showIcons ? icon : fallback;
 }
-function quotaInfo(cache, modelDisplay) {
+function quotaInfo(cache, modelDisplay, officialQuota) {
+  const official = officialQuotaInfo(officialQuota, modelDisplay);
+  if (official !== null) {
+    return official;
+  }
   const [quota, ok] = matchModel(cache, modelDisplay);
   if (!ok || quota === null) {
     return [0, "", false];
@@ -630,6 +634,46 @@ function quotaInfo(cache, modelDisplay) {
   const usagePct = usagePercent(quota);
   const reset = usagePct > 0 ? formatResetClock(quota.resetTime) : "";
   return [usagePct, reset, true];
+}
+function officialQuotaInfo(officialQuota, modelDisplay) {
+  if (!officialQuota) {
+    return null;
+  }
+  const keys = officialQuotaKeys(modelDisplay);
+  const buckets = [];
+  let sawKnownBucket = false;
+  for (const key of keys) {
+    if (!Object.prototype.hasOwnProperty.call(officialQuota, key)) {
+      continue;
+    }
+    sawKnownBucket = true;
+    const bucket = officialQuota[key];
+    if (Number.isFinite(bucket.remaining_fraction)) {
+      buckets.push(bucket);
+    }
+  }
+  if (buckets.length === 0) {
+    return sawKnownBucket ? [0, "", false] : null;
+  }
+  let selected = buckets[0];
+  for (const bucket of buckets.slice(1)) {
+    if ((bucket.remaining_fraction ?? 1) < (selected.remaining_fraction ?? 1)) {
+      selected = bucket;
+    }
+  }
+  const usagePct = usagePercent({
+    remainingFraction: selected.remaining_fraction ?? 1,
+    resetTime: selected.reset_time ?? ""
+  });
+  const reset = usagePct > 0 ? formatResetClock(selected.reset_time ?? "") : "";
+  return [usagePct, reset, true];
+}
+function officialQuotaKeys(modelDisplay) {
+  const normalized = modelDisplay.toLowerCase();
+  if (normalized.includes("claude") || normalized.includes("gpt") || normalized.includes("oss")) {
+    return ["3p-5h", "3p-weekly"];
+  }
+  return ["gemini-5h", "gemini-weekly"];
 }
 function formatResetClock(reset) {
   if (reset === "") {
@@ -684,7 +728,7 @@ function usageValue(config, usagePct) {
 }
 function usageBar(config, usagePct) {
   const fillPct = config.usageValue === "remaining" ? 100 - usagePct : usagePct;
-  return discreteProgressBarWithColor(fillPct, usagePct, 5, config.color);
+  return progressBarWithColor(fillPct, usagePct, 8, config.color);
 }
 function tokenDetail(ctx) {
   const total = (ctx?.total_input_tokens ?? 0) + (ctx?.total_output_tokens ?? 0);
@@ -716,22 +760,6 @@ function progressBarWithColor(fillPct, colorPct, width, color) {
   if (filled < 0) filled = 0;
   if (filled > width) filled = width;
   const bar = `${"\u2588".repeat(filled)}${"\u2591".repeat(width - filled)}`;
-  if (!color) {
-    return bar;
-  }
-  return colorize(bar, percentageColor(colorPct), true);
-}
-function discreteProgressBarWithColor(fillPct, colorPct, width, color) {
-  fillPct = clampInt(fillPct);
-  colorPct = clampInt(colorPct);
-  let filled = Math.trunc(fillPct / 100 * width + 0.5);
-  if (filled < 0) filled = 0;
-  if (filled > width) filled = width;
-  const cells = [];
-  for (let i = 0; i < width; i++) {
-    cells.push(i < filled ? "\u2588" : "\u2591");
-  }
-  const bar = cells.join("\u2009");
   if (!color) {
     return bar;
   }
@@ -816,7 +844,7 @@ function title(raw) {
 }
 
 // src/main.ts
-var version = "0.1.3";
+var version = "0.1.4";
 function renderStatusline(input, cfg = defaultConfig(), cache = null) {
   if (input.trim() === "") {
     return "agy-hud";

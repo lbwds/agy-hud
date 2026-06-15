@@ -53,10 +53,10 @@ npm test
 
    ```
     3.5 Flash High |  Pro │  agy-hud │  main
-   Context █░░░░░░░ 12% (130k/1M) │ Usage █ █ ░ ░ ░ 40% left ↻ Reset 17:33 │ Thinking
+   Context █░░░░░░░ 12% (130k/1M) │ Usage ███░░░░░ 40% left ↻ Reset 17:33 │ Thinking
    ```
 
-   向用户说明各部分的含义:模型与套餐档位、工作目录、git 分支、带 token 明细的上下文进度条(`context_value: both`)、每格代表 20% 的离散剩余额度、本地重置时间,以及 agent 状态。默认配置使用更紧凑的 `percent` 上下文显示。图标需要 Nerd Font —— 没有时会显示成方框 —— HUD 在窄终端下也会平滑降级。
+   向用户说明各部分的含义:模型与套餐档位、工作目录、git 分支、带 token 明细的上下文进度条(`context_value: both`)、连续的配额剩余进度条、本地重置时间,以及 agent 状态。默认配置使用更紧凑的 `percent` 上下文显示。图标需要 Nerd Font —— 没有时会显示成方框 —— HUD 在窄终端下也会平滑降级。
 
 2. 请用户确认效果,或询问是否需要调整 `multiline`、`show_icons`、`context_value` 或 `usage_value`(见[配置](#配置))。
 
@@ -117,11 +117,11 @@ agy-hud quota refresh
 - `show_agent_state`:显示来自标准输入的 `agent_state`,例如 `Idle`、`Thinking` 或 `Auth`。
 - `show_icons`:显示 Nerd Font 图标。如果你的终端字体把图标渲染成方框,设为 `false` 可回退到纯文本。
 - `context_value`:`percent`、`tokens` 或 `both`。默认为 `percent`,即上下文显示当前输入侧窗口占用率。存在 token 总量时,百分比和进度条会由 `total_input_tokens / context_window_size` 计算,避免最近一次长输出让 HUD 跳动。
-- `usage_value`:`remaining` 或 `percent`。默认为 `remaining`,即配额文字和 5 个离散格都显示剩余量,例如 `Usage █ █ ░ ░ ░ 40% left ↻ Reset 17:33`。
+- `usage_value`:`remaining` 或 `percent`。默认为 `remaining`,即配额文字和进度条都显示剩余量,例如 `Usage ███░░░░░ 40% left ↻ Reset 17:33`。
 
 ## 配额缓存
 
-如果存在本地配额缓存,`agy-hud` 可以显示模型用量和重置时间。默认缓存路径为:
+在 Antigravity CLI 1.0.8 及更新版本中,`agy-hud` 会优先读取 status-line payload 里的官方 `quota` 对象。旧版 CLI 或没有官方配额数据的 payload,会回退到本地配额缓存。默认缓存路径为:
 
 ```text
 $HOME/.gemini/antigravity-cli/scratch/agy-hud/quota_cache.json
@@ -129,7 +129,7 @@ $HOME/.gemini/antigravity-cli/scratch/agy-hud/quota_cache.json
 
 你可以用 `AGY_HUD_QUOTA_CACHE` 覆盖该路径。
 
-Antigravity 运行时,可以手动刷新缓存:
+Antigravity 运行时,可以手动刷新这份回退缓存:
 
 ```sh
 agy-hud quota refresh

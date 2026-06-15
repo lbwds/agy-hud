@@ -60,17 +60,17 @@ test("multiline default shape uses context and quota", () => {
   assert.doesNotMatch(lines[1], /  \|  |  │  /);
   assert.match(lines[1], /Usage/);
   assert.match(lines[1], /20% left/);
-  assert.match(lines[1], /Usage █\u2009░\u2009░\u2009░\u2009░ 20% left ↻ Reset \d\d:\d\d/);
+  assert.match(lines[1], /Usage ██░░░░░░ 20% left ↻ Reset \d\d:\d\d/);
   assert.doesNotMatch(lines[1], /↻ 00:44/);
   assert.doesNotMatch(lines[1], /resets/);
   assert.match(lines[1], /Idle/);
 });
 
-test("remaining quota renders as five stepped blocks", () => {
+test("remaining quota renders as a context-style bar from precise fraction", () => {
   const cache: Cache = {
     models: {
       "Gemini 3.5 Flash (Medium)": {
-        remainingFraction: 0.60,
+        remainingFraction: 0.8475794,
         resetTime: "2026-05-19T14:04:00Z"
       }
     }
@@ -80,8 +80,71 @@ test("remaining quota renders as five stepped blocks", () => {
 
   const out = strip(renderFixture(config, cache));
 
-  assert.match(out, /Usage █\u2009█\u2009█\u2009░\u2009░ 60% left ↻ Reset \d\d:\d\d/);
+  assert.match(out, /Usage ███████░ 85% left ↻ Reset \d\d:\d\d/);
+  assert.doesNotMatch(out, /\u2009/);
   assert.doesNotMatch(out, /↻ 02:04/);
+});
+
+test("official quota payload wins over stale quota cache", () => {
+  const payload = fixturePayload();
+  payload.quota = {
+    "gemini-5h": {
+      remaining_fraction: 0.8423024,
+      reset_time: "2026-06-15T08:21:23Z",
+      reset_in_seconds: 16151
+    },
+    "gemini-weekly": {
+      remaining_fraction: 0.90918493,
+      reset_time: "2026-06-19T01:21:19Z",
+      reset_in_seconds: 336547
+    }
+  };
+  const staleCache: Cache = {
+    models: {
+      "Gemini 3.5 Flash (Medium)": {
+        remainingFraction: 0.2,
+        resetTime: "2026-05-19T12:44:00Z"
+      }
+    }
+  };
+  const config = defaultConfig();
+  config.color = false;
+
+  const out = strip(render(payload, {
+    config,
+    quota: staleCache,
+    gitBranch: "main",
+    now: new Date("2026-06-15T03:52:00Z")
+  }));
+
+  assert.match(out, /Usage ███████░ 84% left ↻ Reset \d\d:\d\d/);
+  assert.doesNotMatch(out, /20% left/);
+});
+
+test("official quota uses third-party buckets for Claude and GPT models", () => {
+  const payload = fixturePayload();
+  payload.model = { display_name: "Claude Sonnet 4.6 (Thinking)" };
+  payload.quota = {
+    "3p-5h": {
+      remaining_fraction: 0.48,
+      reset_time: "2026-06-15T08:52:11Z"
+    },
+    "gemini-5h": {
+      remaining_fraction: 0.84,
+      reset_time: "2026-06-15T08:21:23Z"
+    }
+  };
+  const config = defaultConfig();
+  config.color = false;
+
+  const out = strip(render(payload, {
+    config,
+    gitBranch: "main",
+    now: new Date("2026-06-15T03:52:00Z")
+  }));
+
+  assert.match(out, /Sonnet 4\.6/);
+  assert.match(out, /Usage ████░░░░ 48% left ↻ Reset \d\d:\d\d/);
 });
 
 test("agent state can be hidden", () => {
@@ -137,7 +200,7 @@ test("usage value can show percent used", () => {
   const config = defaultConfig();
   config.color = false;
   config.usageValue = "percent";
-  assert.match(renderFixture(config, cache), /Usage █\u2009█\u2009█\u2009█\u2009░ 80% ↻ Reset \d\d:\d\d/);
+  assert.match(renderFixture(config, cache), /Usage ██████░░ 80% ↻ Reset \d\d:\d\d/);
   assert.doesNotMatch(renderFixture(config, cache), /↻ 00:44/);
 });
 
@@ -159,7 +222,7 @@ test("remaining usage bar color reflects used percentage", () => {
     }
   };
   const out = renderFixture(defaultConfig(), cache);
-  assert.match(out, /Usage \x1b\[33m█\u2009█\u2009░\u2009░\u2009░\x1b\[0m/);
+  assert.match(out, /Usage \x1b\[33m███░░░░░\x1b\[0m/);
   assert.match(strip(out), /40% left/);
 });
 
