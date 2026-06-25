@@ -26,6 +26,13 @@ function worktreeFixture(): { repo: string; worktree: string } {
   return { repo, worktree };
 }
 
+function detachedRepoFixture(): string {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), "agy-hud-"));
+  fs.mkdirSync(path.join(repo, ".git"), { recursive: true });
+  fs.writeFileSync(path.join(repo, ".git", "HEAD"), "abcdef1234567890\n");
+  return repo;
+}
+
 test("renderStatusline uses payload VCS branch", () => {
   const payload = `{
     "cwd": "agy-hud",
@@ -90,6 +97,52 @@ test("renderStatusline prefers workspace current dir over project dir for worktr
   });
 
   assert.match(strip(renderStatusline(payload, defaultConfig(), null)), / wt-branch/);
+});
+
+test("renderStatusline uses payload VCS branch before detached process cwd fallback", () => {
+  const repo = detachedRepoFixture();
+  const old = process.cwd();
+  process.chdir(repo);
+  try {
+    const payload = JSON.stringify({
+      cwd: path.basename(repo),
+      model: { display_name: "Gemini 3.5 Flash (High)" },
+      context_window: { used_percentage: 12 },
+      agent_state: "idle",
+      plan_tier: "Google AI Pro",
+      terminal_width: 120,
+      vcs: { type: "git", branch: "main" }
+    });
+
+    assert.match(strip(renderStatusline(payload, defaultConfig(), null)), / main/);
+  } finally {
+    process.chdir(old);
+  }
+});
+
+test("renderStatusline uses workspace project dir before detached process cwd fallback", () => {
+  const detachedRepo = detachedRepoFixture();
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), "agy-hud-"));
+  fs.mkdirSync(path.join(project, ".git"));
+  fs.writeFileSync(path.join(project, ".git", "HEAD"), "ref: refs/heads/main\n");
+  const old = process.cwd();
+  process.chdir(detachedRepo);
+  try {
+    const payload = JSON.stringify({
+      cwd: path.basename(detachedRepo),
+      workspace: { project_dir: project },
+      model: { display_name: "Gemini 3.5 Flash (High)" },
+      context_window: { used_percentage: 12 },
+      agent_state: "idle",
+      plan_tier: "Google AI Pro",
+      terminal_width: 120,
+      vcs: { type: "git" }
+    });
+
+    assert.match(strip(renderStatusline(payload, defaultConfig(), null)), / main/);
+  } finally {
+    process.chdir(old);
+  }
 });
 
 test("renderStatusline uses process cwd when payload cwd basename matches", () => {

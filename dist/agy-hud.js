@@ -861,6 +861,9 @@ function renderStatusline(input, cfg = defaultConfig(), cache = null) {
     if (branch2 === "") {
       branch2 = sanitizedBranch(payload.vcs?.branch ?? "");
     }
+    if (branch2 === "" && shouldUseProcessCWD(payload.cwd ?? "")) {
+      branch2 = branch(".");
+    }
     if (branch2 === "") {
       branch2 = sanitizedBranch(process.env.AGY_HUD_GIT_BRANCH ?? "");
     }
@@ -912,9 +915,6 @@ function gitBranchFromPayload(payload) {
     payload.vcs?.root ?? "",
     payload.workspace?.project_dir ?? ""
   ];
-  if (shouldUseProcessCWD(payload.cwd ?? "")) {
-    paths.splice(2, 0, ".");
-  }
   for (const candidate of paths) {
     if (!validGitCandidatePath(candidate)) {
       continue;

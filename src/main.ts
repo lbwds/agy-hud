@@ -32,6 +32,9 @@ export function renderStatusline(input: string, cfg: Config = defaultConfig(), c
     if (branch === "") {
       branch = sanitizedBranch(payload.vcs?.branch ?? "");
     }
+    if (branch === "" && shouldUseProcessCWD(payload.cwd ?? "")) {
+      branch = gitBranch(".");
+    }
     if (branch === "") {
       branch = sanitizedBranch(process.env.AGY_HUD_GIT_BRANCH ?? "");
     }
@@ -86,9 +89,6 @@ function gitBranchFromPayload(payload: Payload): string {
     payload.vcs?.root ?? "",
     payload.workspace?.project_dir ?? ""
   ];
-  if (shouldUseProcessCWD(payload.cwd ?? "")) {
-    paths.splice(2, 0, ".");
-  }
   for (const candidate of paths) {
     if (!validGitCandidatePath(candidate)) {
       continue;
