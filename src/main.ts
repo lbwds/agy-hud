@@ -8,7 +8,7 @@ import { RefreshResult, refreshQuota } from "./quotaProbe";
 import { branch as gitBranch } from "./gitinfo";
 import { Payload, render } from "./statusline";
 
-export const version = "0.1.4";
+export const version = "0.1.5";
 
 interface StatuslineRefreshState {
   conversationId: string;
@@ -28,9 +28,9 @@ export function renderStatusline(input: string, cfg: Config = defaultConfig(), c
   }
   let branch = "";
   if (cfg.showGitBranch) {
-    branch = sanitizedBranch(payload.vcs?.branch ?? "");
+    branch = gitBranchFromPayload(payload);
     if (branch === "") {
-      branch = gitBranchFromPayload(payload);
+      branch = sanitizedBranch(payload.vcs?.branch ?? "");
     }
     if (branch === "") {
       branch = sanitizedBranch(process.env.AGY_HUD_GIT_BRANCH ?? "");
@@ -81,13 +81,13 @@ export function quotaCachePath(): string {
 
 function gitBranchFromPayload(payload: Payload): string {
   const paths = [
-    payload.vcs?.root ?? "",
-    payload.workspace?.project_dir ?? "",
     payload.workspace?.current_dir ?? "",
-    payload.cwd ?? ""
+    payload.cwd ?? "",
+    payload.vcs?.root ?? "",
+    payload.workspace?.project_dir ?? ""
   ];
   if (shouldUseProcessCWD(payload.cwd ?? "")) {
-    paths.push(".");
+    paths.splice(2, 0, ".");
   }
   for (const candidate of paths) {
     if (!validGitCandidatePath(candidate)) {

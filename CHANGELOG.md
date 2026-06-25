@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.5
+
+- Fixed git branch display when Antigravity is operating inside a linked worktree.
+- Prefer the current workspace directory over stale VCS payload branches and project-root fallbacks.
+- Added regression coverage for stale payload branch data and worktree project/current directory mismatches.
+
 ## 0.1.4
 
 - Prefer official Antigravity CLI 1.0.8+ status-line quota payloads over the local fallback cache.

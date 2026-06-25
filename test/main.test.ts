@@ -9,6 +9,23 @@ import { defaultConfig } from "../src/config";
 import { quotaCacheNeedsRefresh, renderStatusline, runCli } from "../src/main";
 import { execFileSync } from "node:child_process";
 
+function worktreeFixture(): { repo: string; worktree: string } {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agy-hud-"));
+  const repo = path.join(root, "repo");
+  const worktree = path.join(root, "wt");
+  fs.mkdirSync(repo);
+  execFileSync("git", ["init", "-q"], { cwd: repo });
+  execFileSync("git", ["config", "user.email", "agy-hud@example.invalid"], { cwd: repo });
+  execFileSync("git", ["config", "user.name", "agy-hud"], { cwd: repo });
+  fs.writeFileSync(path.join(repo, "file.txt"), "x\n");
+  execFileSync("git", ["add", "file.txt"], { cwd: repo });
+  execFileSync("git", ["commit", "-q", "-m", "init"], { cwd: repo });
+  execFileSync("git", ["branch", "-m", "main"], { cwd: repo });
+  execFileSync("git", ["branch", "wt-branch"], { cwd: repo });
+  execFileSync("git", ["worktree", "add", "-q", worktree, "wt-branch"], { cwd: repo });
+  return { repo, worktree };
+}
+
 test("renderStatusline uses payload VCS branch", () => {
   const payload = `{
     "cwd": "agy-hud",
@@ -41,6 +58,38 @@ test("renderStatusline finds git branch from workspace project dir", () => {
   }`;
 
   assert.match(strip(renderStatusline(payload, defaultConfig(), null)), / main/);
+});
+
+test("renderStatusline prefers current worktree over stale payload VCS branch", () => {
+  const { repo, worktree } = worktreeFixture();
+  const payload = JSON.stringify({
+    cwd: worktree,
+    workspace: { project_dir: repo, current_dir: worktree },
+    model: { display_name: "Gemini 3.5 Flash (High)" },
+    context_window: { used_percentage: 12 },
+    agent_state: "idle",
+    plan_tier: "Google AI Pro",
+    terminal_width: 120,
+    vcs: { type: "git", branch: "main", root: repo }
+  });
+
+  assert.match(strip(renderStatusline(payload, defaultConfig(), null)), / wt-branch/);
+});
+
+test("renderStatusline prefers workspace current dir over project dir for worktrees", () => {
+  const { repo, worktree } = worktreeFixture();
+  const payload = JSON.stringify({
+    cwd: worktree,
+    workspace: { project_dir: repo, current_dir: worktree },
+    model: { display_name: "Gemini 3.5 Flash (High)" },
+    context_window: { used_percentage: 12 },
+    agent_state: "idle",
+    plan_tier: "Google AI Pro",
+    terminal_width: 120,
+    vcs: { type: "git" }
+  });
+
+  assert.match(strip(renderStatusline(payload, defaultConfig(), null)), / wt-branch/);
 });
 
 test("renderStatusline uses process cwd when payload cwd basename matches", () => {
@@ -104,13 +153,13 @@ test("renderStatusline fallbacks for empty and malformed input", () => {
 
 test("CLI version prints package version and empty stdin prints agy-hud", () => {
   const entry = path.join(__dirname, "..", "src", "main.js");
-  assert.equal(execFileSync(process.execPath, [entry, "version"], { encoding: "utf8" }), "0.1.4\n");
+  assert.equal(execFileSync(process.execPath, [entry, "version"], { encoding: "utf8" }), "0.1.5\n");
   assert.equal(execFileSync(process.execPath, [entry, "statusline"], { input: "", encoding: "utf8" }), "agy-hud\n");
 });
 
 test("dist bundle CLI smoke test", () => {
   const entry = path.join(__dirname, "..", "..", "dist", "agy-hud.js");
-  assert.equal(execFileSync(process.execPath, [entry, "version"], { encoding: "utf8" }), "0.1.4\n");
+  assert.equal(execFileSync(process.execPath, [entry, "version"], { encoding: "utf8" }), "0.1.5\n");
   assert.equal(execFileSync(process.execPath, [entry, "statusline"], { input: "", encoding: "utf8" }), "agy-hud\n");
 });
 

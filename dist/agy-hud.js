@@ -844,7 +844,7 @@ function title(raw) {
 }
 
 // src/main.ts
-var version = "0.1.4";
+var version = "0.1.5";
 function renderStatusline(input, cfg = defaultConfig(), cache = null) {
   if (input.trim() === "") {
     return "agy-hud";
@@ -857,9 +857,9 @@ function renderStatusline(input, cfg = defaultConfig(), cache = null) {
   }
   let branch2 = "";
   if (cfg.showGitBranch) {
-    branch2 = sanitizedBranch(payload.vcs?.branch ?? "");
+    branch2 = gitBranchFromPayload(payload);
     if (branch2 === "") {
-      branch2 = gitBranchFromPayload(payload);
+      branch2 = sanitizedBranch(payload.vcs?.branch ?? "");
     }
     if (branch2 === "") {
       branch2 = sanitizedBranch(process.env.AGY_HUD_GIT_BRANCH ?? "");
@@ -907,13 +907,13 @@ function quotaCachePath() {
 }
 function gitBranchFromPayload(payload) {
   const paths = [
-    payload.vcs?.root ?? "",
-    payload.workspace?.project_dir ?? "",
     payload.workspace?.current_dir ?? "",
-    payload.cwd ?? ""
+    payload.cwd ?? "",
+    payload.vcs?.root ?? "",
+    payload.workspace?.project_dir ?? ""
   ];
   if (shouldUseProcessCWD(payload.cwd ?? "")) {
-    paths.push(".");
+    paths.splice(2, 0, ".");
   }
   for (const candidate of paths) {
     if (!validGitCandidatePath(candidate)) {

@@ -111,6 +111,7 @@ agy-hud quota refresh
 ```
 
 `show_progress_bar` 和 `multiline` 默认为 `true`,对应推荐的紧凑两行 HUD。`debug` 默认为 `false`;正常使用时请保持关闭,以免污染状态栏输出。`AGY_HUD_GIT_BRANCH` 适用于 Antigravity 不提供分支、且 hook 进程无法从工作区解析出分支的环境。
+当 workspace 路径可用时,git 分支显示会优先从当前 workspace/worktree 解析,再回退到 Antigravity 的 VCS branch payload。
 
 显示选项:
 

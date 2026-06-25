@@ -111,6 +111,7 @@ Default config:
 ```
 
 `show_progress_bar` and `multiline` default to `true`, matching the preferred compact two-line HUD. `debug` defaults to `false`; keep it disabled for normal use so status-line output stays clean. `AGY_HUD_GIT_BRANCH` is intended for environments where Antigravity does not provide a branch and the hook process cannot resolve one from the workspace.
+When workspace paths are available, git branch display is resolved from the current workspace/worktree before falling back to Antigravity's VCS branch payload.
 
 Display options:
 
