@@ -8,7 +8,10 @@ import { RefreshResult, refreshQuota } from "./quotaProbe";
 import { branch as gitBranch } from "./gitinfo";
 import { Payload, render } from "./statusline";
 
-export const version = "0.1.5";
+export const version = "0.1.6";
+
+const consumedQuotaRefreshMs = 15 * 1000;
+const untouchedQuotaRefreshMs = 30 * 1000;
 
 interface StatuslineRefreshState {
   conversationId: string;
@@ -174,8 +177,14 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
     const payload = parsePayload(raw);
     const cachePath = quotaCachePath();
     const [cache, ok] = loadQuota(cachePath);
-    triggerBackgroundRefreshIfNeeded(cachePath, ok ? cache : null, payload);
-    stdout(`${renderStatusline(raw, cfg, ok ? cache : null)}\n`);
+    const displayCache = await refreshQuotaBeforeRenderIfNeeded(
+      cachePath,
+      ok ? cache : null,
+      payload,
+      deps.refreshQuota ?? refreshQuota
+    );
+    triggerBackgroundRefreshIfNeeded(cachePath, displayCache, payload);
+    stdout(`${renderStatusline(raw, cfg, displayCache)}\n`);
     return 0;
   }
 
@@ -228,6 +237,53 @@ function readStdin(stdin: NodeJS.ReadableStream): Promise<string> {
   });
 }
 
+async function refreshQuotaBeforeRenderIfNeeded(
+  cachePath: string,
+  cache: Cache | null,
+  payload: Payload | null,
+  refresh: (cachePath: string) => Promise<RefreshResult>
+): Promise<Cache | null> {
+  if (!shouldRefreshBeforeRender(cachePath, payload, new Date())) {
+    return cache;
+  }
+  try {
+    const result = await refresh(cachePath);
+    if (!result.ok) {
+      return cache;
+    }
+    const [freshCache, ok] = loadQuota(cachePath);
+    if (!ok) {
+      return cache;
+    }
+    saveStatuslineRefreshState(
+      refreshStatePath(cachePath),
+      mergeStatuslineRefreshState(loadStatuslineRefreshState(refreshStatePath(cachePath)), payload, true, new Date())
+    );
+    return freshCache;
+  } catch {
+    return cache;
+  }
+}
+
+function shouldRefreshBeforeRender(cachePath: string, payload: Payload | null, now: Date): boolean {
+  if (cachePath === "" || !payload) {
+    return false;
+  }
+  const prevState = loadStatuslineRefreshState(refreshStatePath(cachePath));
+  const prevAgentState = prevState?.agentState ?? "";
+  const agentState = normalizeAgentState(payload.agent_state);
+  if (agentState !== "idle" || prevAgentState === "" || prevAgentState === "idle") {
+    return false;
+  }
+  if (prevState?.lastActivityAt) {
+    const last = new Date(prevState.lastActivityAt);
+    if (!Number.isNaN(last.getTime()) && now.getTime() - last.getTime() < 5 * 1000) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function triggerBackgroundRefreshIfNeeded(cachePath: string, cache: Cache | null, payload: Payload | null = null): void {
   const now = new Date();
   const statePath = refreshStatePath(cachePath);
@@ -271,7 +327,7 @@ export function quotaCacheNeedsRefresh(cache: Cache | null, now: Date = new Date
     if (Number.isNaN(cacheTime.getTime())) {
       return true;
     }
-    const interval = cacheLooksUntouched(cache) ? 30 * 1000 : 5 * 60 * 1000;
+    const interval = cacheLooksUntouched(cache) ? untouchedQuotaRefreshMs : consumedQuotaRefreshMs;
     if (now.getTime() - cacheTime.getTime() > interval) {
       return true;
     }
@@ -355,9 +411,6 @@ function shouldTriggerActivityRefresh(
   if (!payload) {
     return false;
   }
-  if (!cacheLooksUntouched(cache) && !activeModelQuotaLooksUntouched(cache, payload)) {
-    return false;
-  }
 
   const conversationId = (payload.conversation_id ?? "").trim();
   const agentState = normalizeAgentState(payload.agent_state);
@@ -366,6 +419,14 @@ function shouldTriggerActivityRefresh(
   const conversationChanged = conversationId !== "" && conversationId !== prevConversationId;
   const becameActive = agentState !== "" && agentState !== "idle" && agentState !== prevAgentState;
   const settledAfterActive = agentState === "idle" && prevAgentState !== "" && prevAgentState !== "idle";
+
+  if (settledAfterActive) {
+    return true;
+  }
+
+  if (!cacheLooksUntouched(cache) && !activeModelQuotaLooksUntouched(cache, payload)) {
+    return false;
+  }
 
   if (!conversationChanged && !becameActive && !settledAfterActive) {
     return false;

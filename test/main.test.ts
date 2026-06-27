@@ -206,13 +206,13 @@ test("renderStatusline fallbacks for empty and malformed input", () => {
 
 test("CLI version prints package version and empty stdin prints agy-hud", () => {
   const entry = path.join(__dirname, "..", "src", "main.js");
-  assert.equal(execFileSync(process.execPath, [entry, "version"], { encoding: "utf8" }), "0.1.5\n");
+  assert.equal(execFileSync(process.execPath, [entry, "version"], { encoding: "utf8" }), "0.1.6\n");
   assert.equal(execFileSync(process.execPath, [entry, "statusline"], { input: "", encoding: "utf8" }), "agy-hud\n");
 });
 
 test("dist bundle CLI smoke test", () => {
   const entry = path.join(__dirname, "..", "..", "dist", "agy-hud.js");
-  assert.equal(execFileSync(process.execPath, [entry, "version"], { encoding: "utf8" }), "0.1.5\n");
+  assert.equal(execFileSync(process.execPath, [entry, "version"], { encoding: "utf8" }), "0.1.6\n");
   assert.equal(execFileSync(process.execPath, [entry, "statusline"], { input: "", encoding: "utf8" }), "agy-hud\n");
 });
 
@@ -247,7 +247,17 @@ test("quota cache refresh detects stale and legacy cache shapes", () => {
   assert.equal(quotaCacheNeedsRefresh({ timestamp: "not-a-date", models: {} }, now), true);
   assert.equal(quotaCacheNeedsRefresh({ timestamp: "2026-05-20T04:00:00Z", models: {} }, now), true);
   assert.equal(quotaCacheNeedsRefresh({
-    timestamp: "2026-05-20T04:09:00Z",
+    timestamp: "2026-05-20T04:09:40Z",
+    models: {
+      "Gemini 3.5 Flash (High)": {
+        remainingFraction: 0.8,
+        resetTime: "2026-05-20T05:00:00Z"
+      }
+    }
+  }, now), true);
+
+  assert.equal(quotaCacheNeedsRefresh({
+    timestamp: "2026-05-20T04:09:50Z",
     models: {
       "Gemini 3.5 Flash (High)": {
         remainingFraction: 0.8,
@@ -389,6 +399,127 @@ echo "$@" >> "${markerPath}"
     assert.equal(fs.existsSync(markerPath), true);
   } finally {
     process.argv[0] = oldArgv0;
+    if (oldCacheEnv === undefined) delete process.env.AGY_HUD_QUOTA_CACHE;
+    else process.env.AGY_HUD_QUOTA_CACHE = oldCacheEnv;
+  }
+});
+
+test("statusline refreshes when conversation settles after active work even with fresh consumed cache", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agy-hud-"));
+  const cachePath = path.join(dir, "quota_cache.json");
+  const markerPath = path.join(dir, "spawned.txt");
+  const oldCacheEnv = process.env.AGY_HUD_QUOTA_CACHE;
+
+  fs.writeFileSync(cachePath, JSON.stringify({
+    timestamp: new Date().toISOString(),
+    models: {
+      "Claude Opus 4.6 (Thinking)": {
+        remainingFraction: 0.52,
+        resetTime: "2026-05-20T08:00:00Z"
+      }
+    }
+  }), "utf8");
+  fs.writeFileSync(`${cachePath}.statusline.json`, JSON.stringify({
+    conversationId: "conv-opus",
+    agentState: "working",
+    lastActivityAt: new Date(Date.now() - 10_000).toISOString()
+  }), "utf8");
+
+  process.env.AGY_HUD_QUOTA_CACHE = cachePath;
+
+  try {
+    const payload = JSON.stringify({
+      cwd: "agy-hud",
+      conversation_id: "conv-opus",
+      model: { display_name: "Claude Opus 4.6 (Thinking)" },
+      context_window: { used_percentage: 12 },
+      agent_state: "idle",
+      plan_tier: "Google AI Pro",
+      terminal_width: 120
+    });
+
+    const code = await runCli(["statusline"], {
+      stdin: Readable.from([payload]),
+      stdout: () => {},
+      stderr: () => {},
+      refreshQuota: async () => {
+        fs.writeFileSync(markerPath, "refreshed\n", "utf8");
+        return { ok: true, message: "refreshed" };
+      }
+    });
+
+    assert.equal(code, 0);
+    assert.equal(fs.existsSync(markerPath), true);
+  } finally {
+    if (oldCacheEnv === undefined) delete process.env.AGY_HUD_QUOTA_CACHE;
+    else process.env.AGY_HUD_QUOTA_CACHE = oldCacheEnv;
+  }
+});
+
+test("statusline renders refreshed quota on the same idle transition", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agy-hud-"));
+  const cachePath = path.join(dir, "quota_cache.json");
+  const oldCacheEnv = process.env.AGY_HUD_QUOTA_CACHE;
+  let stdout = "";
+
+  fs.writeFileSync(cachePath, JSON.stringify({
+    timestamp: new Date().toISOString(),
+    models: {
+      "Claude Opus 4.6 (Thinking)": {
+        remainingFraction: 0.29,
+        resetTime: "2026-06-27T09:48:56Z"
+      }
+    }
+  }), "utf8");
+  fs.writeFileSync(`${cachePath}.statusline.json`, JSON.stringify({
+    conversationId: "conv-opus",
+    agentState: "working",
+    lastActivityAt: new Date(Date.now() - 10_000).toISOString()
+  }), "utf8");
+
+  process.env.AGY_HUD_QUOTA_CACHE = cachePath;
+
+  try {
+    const payload = JSON.stringify({
+      cwd: "agy-hud",
+      conversation_id: "conv-opus",
+      model: { display_name: "Claude Opus 4.6 (Thinking)" },
+      context_window: { used_percentage: 12 },
+      agent_state: "idle",
+      plan_tier: "Google AI Pro",
+      terminal_width: 120,
+      quota: {
+        "3p-5h": {
+          remaining_fraction: 0.29,
+          reset_time: "2026-06-27T09:48:56Z"
+        }
+      }
+    });
+
+    const code = await runCli(["statusline"], {
+      stdin: Readable.from([payload]),
+      stdout: chunk => {
+        stdout += chunk;
+      },
+      stderr: () => {},
+      refreshQuota: async refreshPath => {
+        fs.writeFileSync(refreshPath, JSON.stringify({
+          timestamp: new Date().toISOString(),
+          models: {
+            "Claude Opus 4.6 (Thinking)": {
+              remainingFraction: 0.03,
+              resetTime: "2026-06-27T09:48:56Z"
+            }
+          }
+        }), "utf8");
+        return { ok: true, message: "refreshed" };
+      }
+    });
+
+    assert.equal(code, 0);
+    assert.match(strip(stdout), /3% left/);
+    assert.doesNotMatch(strip(stdout), /29% left/);
+  } finally {
     if (oldCacheEnv === undefined) delete process.env.AGY_HUD_QUOTA_CACHE;
     else process.env.AGY_HUD_QUOTA_CACHE = oldCacheEnv;
   }

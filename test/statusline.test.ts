@@ -54,6 +54,7 @@ test("multiline default shape uses context and quota", () => {
   assert.match(lines[0], / 3\.5 Flash Med \|  Pro/);
   assert.match(lines[0], / agy-hud/);
   assert.match(lines[0], / main/);
+  assert.match(lines[0], /Idle/);
   assert.doesNotMatch(lines[0], /  \|  |  │  /);
   assert.match(lines[1], /Context/);
   assert.match(lines[1], /12%/);
@@ -63,7 +64,7 @@ test("multiline default shape uses context and quota", () => {
   assert.match(lines[1], /Usage ██░░░░░░ 20% left ↻ Reset \d\d:\d\d/);
   assert.doesNotMatch(lines[1], /↻ 00:44/);
   assert.doesNotMatch(lines[1], /resets/);
-  assert.match(lines[1], /Idle/);
+  assert.doesNotMatch(lines[1], /Idle/);
 });
 
 test("remaining quota renders as a context-style bar from precise fraction", () => {
@@ -85,8 +86,9 @@ test("remaining quota renders as a context-style bar from precise fraction", () 
   assert.doesNotMatch(out, /↻ 02:04/);
 });
 
-test("official quota payload wins over stale quota cache", () => {
+test("official quota payload renders five-hour and weekly windows over stale quota cache", () => {
   const payload = fixturePayload();
+  payload.terminal_width = 160;
   payload.quota = {
     "gemini-5h": {
       remaining_fraction: 0.8423024,
@@ -117,8 +119,73 @@ test("official quota payload wins over stale quota cache", () => {
     now: new Date("2026-06-15T03:52:00Z")
   }));
 
-  assert.match(out, /Usage ███████░ 84% left ↻ Reset \d\d:\d\d/);
+  assert.match(out, /Usage ████████░░ 84% \(↻ 4h 29m\) \|  █████████░ 91% \(↻ 3d 21h\)/);
   assert.doesNotMatch(out, /20% left/);
+});
+
+test("untouched official third-party quota does not override consumed active-model cache", () => {
+  const payload = fixturePayload();
+  payload.model = { display_name: "Claude Opus 4.6 (Thinking)" };
+  payload.quota = {
+    "3p-5h": {
+      remaining_fraction: 1,
+      reset_time: "2026-06-27T09:48:56Z"
+    }
+  };
+  const cache: Cache = {
+    timestamp: "2026-06-27T04:51:30Z",
+    models: {
+      "Claude Opus 4.6 (Thinking)": {
+        remainingFraction: 0.92,
+        resetTime: "2026-06-27T09:48:56Z"
+      }
+    }
+  };
+  const config = defaultConfig();
+  config.color = false;
+  config.contextValue = "both";
+
+  const out = strip(render(payload, {
+    config,
+    quota: cache,
+    gitBranch: "main",
+    now: new Date("2026-06-27T04:52:00Z")
+  }));
+
+  assert.match(out, /Usage ███████░ 92% left ↻ Reset \d\d:\d\d/);
+  assert.doesNotMatch(out, /100% left/);
+});
+
+test("fresh active-model cache can override stale official third-party quota with higher remaining value", () => {
+  const payload = fixturePayload();
+  payload.model = { display_name: "Claude Opus 4.6 (Thinking)" };
+  payload.quota = {
+    "3p-5h": {
+      remaining_fraction: 0.29,
+      reset_time: "2026-06-27T09:48:56Z"
+    }
+  };
+  const cache: Cache = {
+    timestamp: "2026-06-27T05:08:37Z",
+    models: {
+      "Claude Opus 4.6 (Thinking)": {
+        remainingFraction: 0.1661196,
+        resetTime: "2026-06-27T09:48:56Z"
+      }
+    }
+  };
+  const config = defaultConfig();
+  config.color = false;
+
+  const out = strip(render(payload, {
+    config,
+    quota: cache,
+    gitBranch: "main",
+    now: new Date("2026-06-27T05:09:00Z")
+  }));
+
+  assert.match(out, /Usage █░░░░░░░ 17% left ↻ Reset \d\d:\d\d/);
+  assert.doesNotMatch(out, /29% left/);
 });
 
 test("official quota uses third-party buckets for Claude and GPT models", () => {
@@ -155,9 +222,9 @@ test("agent state can be hidden", () => {
 
 test("context value formats", () => {
   const cases: Record<string, string> = {
-    percent: "Context █░░░░░░░ 12%",
-    tokens: "Context █░░░░░░░ 130k/1M",
-    both: "Context █░░░░░░░ 12% (130k/1M)"
+    percent: "Context █░░░░░░░░░ 12%",
+    tokens: "Context █░░░░░░░░░ 125k/1M",
+    both: "Context █░░░░░░░░░ 12% (125k/1M)"
   };
   for (const [value, want] of Object.entries(cases)) {
     const config = defaultConfig();
@@ -177,6 +244,7 @@ test("context percent ignores volatile output token count", () => {
   };
   const config = defaultConfig();
   config.color = false;
+  config.contextValue = "both";
 
   const out = strip(render(payload, {
     config,
@@ -185,7 +253,9 @@ test("context percent ignores volatile output token count", () => {
   }));
 
   assert.match(out, /Context .* 6%/);
+  assert.match(out, /\(60k\/1M\)/);
   assert.doesNotMatch(out, /Context .* 10%/);
+  assert.doesNotMatch(out, /\(100k\/1M\)/);
 });
 
 test("usage value can show percent used", () => {
@@ -283,7 +353,7 @@ test("single-line can show token detail only when it fits", () => {
   config.showProgressBar = false;
   const out = strip(renderFixture(config));
   assert.doesNotMatch(out, /\n/);
-  assert.match(out, /\(130k\/1M\)/);
+  assert.match(out, /\(125k\/1M\)/);
 
   const payload = fixturePayload();
   payload.terminal_width = 35;
@@ -292,7 +362,7 @@ test("single-line can show token detail only when it fits", () => {
     gitBranch: "main",
     now: new Date("2026-05-19T12:00:00Z")
   });
-  assert.doesNotMatch(strip(narrow), /\(130k\/1M\)/);
+  assert.doesNotMatch(strip(narrow), /\(125k\/1M\)/);
   assert.ok(visibleLen(narrow) <= 35);
 });
 

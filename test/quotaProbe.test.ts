@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildQuotaCache, parseLanguageServerInfo, parseListeningPorts, refreshQuota } from "../src/quotaProbe";
+import { buildQuotaCache, parseAgyServerInfos, parseLanguageServerInfo, parseListeningPorts, refreshQuota } from "../src/quotaProbe";
 
 test("parseLanguageServerInfo extracts pid and csrf token", () => {
   const ps = [
@@ -14,6 +14,19 @@ test("parseLanguageServerInfo extracts pid and csrf token", () => {
 test("parseLanguageServerInfo rejects non-numeric pid", () => {
   const ps = "user nope 0.0 /path/language_server --csrf_token abc-123XYZ";
   assert.equal(parseLanguageServerInfo(ps), null);
+});
+
+test("parseAgyServerInfos matches agy process with and without arguments", () => {
+  const ps = [
+    "user 222 0.0 agy",
+    "user 333 0.0 /opt/bin/agy --dangerously-skip-permissions",
+    "user 444 0.0 agy-helper --not-real"
+  ].join("\n");
+
+  assert.deepEqual(parseAgyServerInfos(ps), [
+    { pid: "222", csrfToken: "", kind: "agy" },
+    { pid: "333", csrfToken: "", kind: "agy" }
+  ]);
 });
 
 test("parseListeningPorts extracts unique LISTEN ports", () => {
@@ -130,6 +143,40 @@ test("refreshQuota falls back to agy local server ports without csrf token", asy
 
   assert.equal(result.ok, true);
   assert.match(writes["/tmp/quota_cache.json"], /Gemini 3\.5 Flash \(High\)/);
+});
+
+test("refreshQuota prefers agy local server over stale language_server when both are running", async () => {
+  const writes: Record<string, string> = {};
+  const result = await refreshQuota("/tmp/quota_cache.json", {
+    ps: () => [
+      "user 11111 0.0 0.0 /Applications/Antigravity.app/Contents/Resources/bin/language_server --csrf_token token-1",
+      "user 22222 0.0 0.0 agy --dangerously-skip-permissions"
+    ].join("\n"),
+    lsof: pid => {
+      if (pid === "11111") {
+        return "lang 11111 user 9u IPv4 0 TCP 127.0.0.1:1111 (LISTEN)\n";
+      }
+      return "agy 22222 user 9u IPv4 0 TCP 127.0.0.1:2222 (LISTEN)\n";
+    },
+    request: async (port, csrfToken) => {
+      if (port === 2222) {
+        assert.equal(csrfToken, "");
+        return sampleRawStatus("Claude Opus 4.6 (Thinking)", 0.17);
+      }
+      assert.equal(port, 1111);
+      assert.equal(csrfToken, "token-1");
+      return sampleRawStatus("Claude Opus 4.6 (Thinking)", 0.29);
+    },
+    now: () => new Date("2026-05-20T04:00:00Z"),
+    writeFile: (filePath, data) => {
+      writes[filePath] = data;
+    },
+    mkdir: () => {}
+  });
+
+  assert.equal(result.ok, true);
+  assert.match(writes["/tmp/quota_cache.json"], /"remainingFraction": 0\.17/);
+  assert.doesNotMatch(writes["/tmp/quota_cache.json"], /"remainingFraction": 0\.29/);
 });
 
 test("refreshQuota skips stale agy process candidates", async () => {

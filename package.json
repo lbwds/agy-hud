@@ -1,6 +1,6 @@
 {
   "name": "agy-hud",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Compact Antigravity CLI status-line HUD",
   "license": "MIT",
   "bin": {

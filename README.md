@@ -12,6 +12,7 @@ It reads Antigravity status-line JSON from stdin and renders a short terminal HU
 
 - Antigravity CLI with plugin support
 - Node.js 18+ available on `PATH`
+- macOS or Linux. Windows is not currently supported because the plugin hook/install flow has not been verified there.
 
 `agy-hud` is distributed as an Antigravity plugin archive, not as an npm package. The archive includes the bundled runtime script at `dist/agy-hud.js`, so plugin users do not need to run `npm install`.
 
@@ -53,7 +54,7 @@ If you are an AI agent installing `agy-hud` for someone, do not install silently
 
    ```
     3.5 Flash High |  Pro │  agy-hud │  main
-   Context █░░░░░░░ 12% (130k/1M) │ Usage ███░░░░░ 40% left ↻ Reset 17:33 │ Thinking
+   Context ░░░░░░░░░░ 0% │ Usage ████████░░ 82% (↻ 1h 52m) |  █░░░░░░░░░ 13% (↻ 4d 21h)
    ```
 
    Tell them what they are looking at: model and plan tier, working directory, git branch, a context bar with token detail (`context_value: both`), quota remaining as a continuous bar, local reset time, and agent state. The default config shows a more compact `percent` context. Icons need a Nerd Font — without one they render as boxes — and the HUD degrades cleanly on narrow terminals.
@@ -80,7 +81,7 @@ agy-hud version
 agy-hud quota refresh
 ```
 
-`statusline` renders from stdin plus local config/cache files. If the quota cache is missing or older than five minutes, it may start a detached background `quota refresh`, but foreground HUD rendering does not wait on network or subprocess work. `quota refresh` asks the running Antigravity local server for `GetUserStatus`, writes the sanitized quota cache, and exits non-zero if no local server can be reached.
+`statusline` renders from stdin plus local config/cache files. When `agent_state` settles from active work back to `idle`, it performs one local loopback `quota refresh` before rendering so the same redraw can reflect post-response quota. Missing or stale cache data can still refresh in the background as a fallback. `quota refresh` asks the running Antigravity local server for `GetUserStatus`, writes the sanitized quota cache, and exits non-zero if no local server can be reached.
 
 ## Config
 
@@ -118,11 +119,11 @@ Display options:
 - `show_agent_state`: shows stdin `agent_state` such as `Idle`, `Thinking`, or `Auth`.
 - `show_icons`: shows Nerd Font icons. Set to `false` to fall back to plain text if your terminal font renders boxes.
 - `context_value`: `percent`, `tokens`, or `both`. Default is `percent`, so context shows current input-side window occupancy. When token totals are available, the percentage and bar are derived from `total_input_tokens / context_window_size` so a large latest response does not make the HUD jump.
-- `usage_value`: `remaining` or `percent`. Default is `remaining`, so quota text and bar show what is left, for example `Usage ███░░░░░ 40% left ↻ Reset 17:33`.
+- `usage_value`: `remaining` or `percent`. Default is `remaining`, so quota text and bar show what is left. When Antigravity provides both windows, the HUD shows them separately with per-window reset durations, for example `Usage ████████░░ 82% (↻ 1h 52m) |  █░░░░░░░░░ 13% (↻ 4d 21h)`.
 
 ## Quota Cache
 
-On Antigravity CLI 1.0.8 and newer, `agy-hud` reads the official `quota` object from the status-line payload first. Older CLI versions, or payloads without official quota data, fall back to the local quota cache. The default cache path is:
+On Antigravity CLI 1.0.8 and newer, `agy-hud` reads the official `quota` object from the status-line payload first. If the payload includes both 5-hour and weekly windows, the HUD renders both in order instead of collapsing them into one ambiguous number. If an official bucket still looks untouched while a fresh active-model cache already shows consumption, `agy-hud` uses the fresh cache to avoid showing a stale `100% left`. Older CLI versions, or payloads without official quota data, fall back to the local quota cache. The default cache path is:
 
 ```text
 $HOME/.gemini/antigravity-cli/scratch/agy-hud/quota_cache.json
@@ -136,7 +137,7 @@ Refresh the fallback cache manually when Antigravity is running:
 agy-hud quota refresh
 ```
 
-The refresh command supports both known Antigravity local-server shapes: the older `language_server --csrf_token ...` process and the current `agy` loopback server. If a CSRF token is present, it is used only for the loopback `GetUserStatus` request. The command stores only the sanitized cache shape below. Normal `statusline` rendering reads this cache and may refresh it in the background when it is stale. If the cache still looks untouched (`100% left` for every model), status-line activity such as a new conversation or agent state change can also trigger an immediate debounced background refresh.
+The refresh command supports both known Antigravity local-server shapes: the current `agy` loopback server and the older `language_server --csrf_token ...` process, in that order. If a CSRF token is present, it is used only for the loopback `GetUserStatus` request. The command stores only the sanitized cache shape below. Normal `statusline` rendering reads this cache and refreshes it when active work settles. It also uses stale-cache refreshes as a fallback. If the cache still looks untouched (`100% left` for every model), status-line activity such as a new conversation or agent state change can trigger an immediate debounced background refresh.
 
 Expected sanitized cache shape:
 
@@ -153,11 +154,11 @@ Expected sanitized cache shape:
 }
 ```
 
-If quota data is missing, the HUD omits the usage segment instead of showing a fake limit. Reset time is derived from the local API's `resetTime` field and displayed as a local clock time, because the status-line hook cannot update an already-rendered countdown without a redraw.
+If quota data is missing, the HUD omits the usage segment instead of showing a fake limit. Official quota payloads can include live `reset_in_seconds`, so dual-window quota displays show per-window relative reset durations. The local fallback cache still derives reset from the local API's `resetTime` field and displays it as a local clock time.
 
 ## Privacy And Security
 
-`agy-hud statusline` renders from stdin plus local optional config/cache files. It does not transmit status-line payload data externally. Background quota refreshes contact only the local Antigravity loopback server.
+`agy-hud statusline` renders from stdin plus local optional config/cache files. It does not transmit status-line payload data externally. Quota refreshes contact only the local Antigravity loopback server.
 
 `agy-hud quota refresh` contacts only the local Antigravity server on loopback and does not print CSRF tokens, cookies, or raw probe responses.
 

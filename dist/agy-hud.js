@@ -164,7 +164,7 @@ function parseLanguageServerInfo(psOutput) {
 function parseAgyServerInfos(psOutput) {
   const infos = [];
   for (const line of psOutput.split(/\r?\n/)) {
-    if (!/(^|\s)(?:\/\S+\/)?agy\s+--/.test(line)) {
+    if (!/(^|\s)(?:\/\S+\/)?agy(\s|$)/.test(line)) {
       continue;
     }
     const parts = line.trim().split(/\s+/);
@@ -235,7 +235,7 @@ function buildQuotaCache(rawResponse, now) {
 async function refreshQuota(cachePath, runtime = defaultRuntime()) {
   const psOutput = runtime.ps();
   const languageServer = parseLanguageServerInfo(psOutput);
-  const candidates = languageServer ? [languageServer] : parseAgyServerInfos(psOutput);
+  const candidates = [...parseAgyServerInfos(psOutput), ...languageServer ? [languageServer] : []];
   if (candidates.length === 0) {
     return { ok: false, message: "No running language_server or agy quota server found." };
   }
@@ -481,13 +481,13 @@ function render(payload, opts) {
   const modelSegment = renderModelSegment(shortModelName(modelDisplay), payload.plan_tier ?? "", config);
   const ctxPct = contextPercent(payload.context_window);
   const stateLabel = state(payload.agent_state ?? "");
-  const [usagePct, reset, hasQuota] = quotaInfo(opts.quota, modelDisplay, payload.quota);
+  const quota = quotaInfo(opts.quota, modelDisplay, payload.quota, opts.now ?? /* @__PURE__ */ new Date());
   if (config.multiline) {
-    return renderMultiline(payload, config, width, modelSegment, ctxPct, usagePct, reset, hasQuota, opts.gitBranch ?? "", stateLabel);
+    return renderMultiline(payload, config, width, modelSegment, ctxPct, quota, opts.gitBranch ?? "", stateLabel);
   }
-  return renderSingleLine(payload, config, width, modelSegment, ctxPct, usagePct, reset, hasQuota, stateLabel);
+  return renderSingleLine(payload, config, width, modelSegment, ctxPct, quota, stateLabel);
 }
-function renderMultiline(payload, config, width, modelSegment, ctxPct, usagePct, reset, hasQuota, branch2, stateLabel) {
+function renderMultiline(payload, config, width, modelSegment, ctxPct, quota, branch2, stateLabel) {
   const line1Parts = [colorize(modelSegment, colorBlue, config.color)];
   if (config.showCWD && payload.cwd) {
     line1Parts.push(colorize(withIcon(config, "\uF07C ", "") + import_node_path3.default.basename(payload.cwd), colorYellow, config.color));
@@ -495,9 +495,14 @@ function renderMultiline(payload, config, width, modelSegment, ctxPct, usagePct,
   if (config.showGitBranch && branch2 !== "") {
     line1Parts.push(colorize(renderGitSegment(branch2, config), colorMagenta, config.color));
   }
+  const stateText = config.showAgentState ? colorize(stateLabel, stateColor(stateLabel), config.color) : "";
+  line1Parts.push(stateText);
   let line1 = joinHeader(...line1Parts);
   if (visibleLen(line1) > width) {
-    line1 = joinHeader(colorize(modelSegment, colorBlue, config.color), colorize(renderGitSegment(branch2, config), colorMagenta, config.color));
+    line1 = joinHeader(colorize(modelSegment, colorBlue, config.color), colorize(renderGitSegment(branch2, config), colorMagenta, config.color), stateText);
+  }
+  if (visibleLen(line1) > width) {
+    line1 = joinHeader(colorize(modelSegment, colorBlue, config.color), stateText);
   }
   if (visibleLen(line1) > width) {
     line1 = colorize(modelSegment, colorBlue, config.color);
@@ -505,53 +510,52 @@ function renderMultiline(payload, config, width, modelSegment, ctxPct, usagePct,
   line1 = fit(line1, width);
   let ctx = "Context ";
   if (config.showProgressBar) {
-    ctx += `${progressBar(ctxPct, 8, config.color)} `;
+    ctx += `${progressBar(ctxPct, 10, config.color)} `;
   }
   ctx += contextValue(config, payload.context_window, ctxPct);
   let usage2 = "";
-  if (hasQuota) {
-    usage2 = usageLabel(config, usagePct, true);
-    if (reset !== "") {
-      usage2 += resetSuffix(config, reset);
+  if (quota.hasQuota) {
+    usage2 = usageLabel(config, quota, true);
+    if (quota.windows.length <= 1 && quota.reset !== "") {
+      usage2 += resetSuffix(config, quota.reset);
     }
   }
-  const stateText = config.showAgentState ? colorize(stateLabel, stateColor(stateLabel), config.color) : "";
-  let line2 = joinHeader(ctx, usage2, stateText);
+  let line2 = joinHeader(ctx, usage2);
   if (visibleLen(line2) > width) {
     let usageNoBar = "";
-    if (hasQuota) {
-      usageNoBar = usageLabel(config, usagePct, false);
-      if (reset !== "") {
-        usageNoBar += resetSuffix(config, reset);
+    if (quota.hasQuota) {
+      usageNoBar = usageLabel(config, quota, false);
+      if (quota.windows.length <= 1 && quota.reset !== "") {
+        usageNoBar += resetSuffix(config, quota.reset);
       }
     }
-    line2 = joinHeader(`Context ${contextValue(config, payload.context_window, ctxPct)}`, usageNoBar, stateText);
+    line2 = joinHeader(`Context ${contextValue(config, payload.context_window, ctxPct)}`, usageNoBar);
   }
   if (visibleLen(line2) > width) {
     let usageCompact = "";
-    if (hasQuota) {
-      usageCompact = usageLabel(config, usagePct, false);
-      if (reset !== "") {
-        usageCompact += resetSuffix(config, reset);
+    if (quota.hasQuota) {
+      usageCompact = usageLabel(config, quota, false);
+      if (quota.windows.length <= 1 && quota.reset !== "") {
+        usageCompact += resetSuffix(config, quota.reset);
       }
     }
-    line2 = joinHeader(`Context ${formatInt(ctxPct)}%`, usageCompact, stateText);
+    line2 = joinHeader(`Context ${formatInt(ctxPct)}%`, usageCompact);
   }
   if (visibleLen(line2) > width) {
     let coreUsage = "";
-    if (hasQuota) {
-      coreUsage = `Use ${usageValue(config, usagePct)}`;
+    if (quota.hasQuota) {
+      coreUsage = `Use ${usageValue(config, quota.usagePct)}`;
     }
-    line2 = join(`Ctx ${formatInt(ctxPct)}%`, coreUsage, stateText);
+    line2 = join(`Ctx ${formatInt(ctxPct)}%`, coreUsage);
   }
   if (visibleLen(line2) > width) {
-    line2 = join(`${formatInt(ctxPct)}%`, stateText);
+    line2 = `${formatInt(ctxPct)}%`;
   }
   line2 = fit(line2, width);
   return `${line1}
 ${line2}`;
 }
-function renderSingleLine(payload, config, width, modelSegment, ctxPct, usagePct, reset, hasQuota, stateLabel) {
+function renderSingleLine(payload, config, width, modelSegment, ctxPct, quota, stateLabel) {
   const coloredBadge = colorize(modelSegment, colorBlue, config.color);
   const ctx = `Ctx ${contextValue(config, payload.context_window, ctxPct)}`;
   let tokens = tokenDetail(payload.context_window);
@@ -561,17 +565,17 @@ function renderSingleLine(payload, config, width, modelSegment, ctxPct, usagePct
     tokens = "";
   }
   let usage2 = "";
-  if (hasQuota) {
-    let text = `Usage ${usageValue(config, usagePct)}`;
-    if (reset !== "") {
-      text += resetSuffix(config, reset);
+  if (quota.hasQuota) {
+    let text = usageLabel(config, quota, false);
+    if (quota.windows.length <= 1 && quota.reset !== "") {
+      text += resetSuffix(config, quota.reset);
     }
     usage2 = colorize(text, colorMuted, config.color);
   }
   const stateText = config.showAgentState ? colorize(stateLabel, stateColor(stateLabel), config.color) : "";
   let bar = "";
   if (config.showProgressBar) {
-    bar = progressBar(ctxPct, 8, config.color);
+    bar = progressBar(ctxPct, 10, config.color);
   }
   const levels = [
     [coloredBadge, ctx, tokens, bar, usage2, stateText],
@@ -619,21 +623,47 @@ function renderGitSegment(branch2, config) {
 function resetSuffix(config, reset) {
   return ` ${withIcon(config, "\u21BB ", "")}Reset ${reset}`;
 }
+function inlineResetSuffix(config, reset) {
+  if (reset === "") {
+    return "";
+  }
+  return ` (${withIcon(config, "\u21BB ", "")}${reset})`;
+}
 function withIcon(config, icon, fallback) {
   return config.showIcons ? icon : fallback;
 }
-function quotaInfo(cache, modelDisplay, officialQuota) {
+function quotaInfo(cache, modelDisplay, officialQuota, now) {
+  const cacheInfo = cacheQuotaInfo(cache, modelDisplay);
   const official = officialQuotaInfo(officialQuota, modelDisplay);
   if (official !== null) {
+    if (official.hasQuota && cacheInfo !== null && cacheInfo.hasQuota && cacheIsFresh(cache, now)) {
+      return mergeFreshCacheQuota(official, cacheInfo);
+    }
     return official;
   }
+  if (cacheInfo !== null) {
+    return cacheInfo;
+  }
+  return noQuota();
+}
+function cacheQuotaInfo(cache, modelDisplay) {
   const [quota, ok] = matchModel(cache, modelDisplay);
   if (!ok || quota === null) {
-    return [0, "", false];
+    return null;
   }
   const usagePct = usagePercent(quota);
   const reset = usagePct > 0 ? formatResetClock(quota.resetTime) : "";
-  return [usagePct, reset, true];
+  return quotaDisplay([{ label: "", usagePct, reset }]);
+}
+function cacheIsFresh(cache, now) {
+  if (!cache?.timestamp) {
+    return false;
+  }
+  const cacheTime = new Date(cache.timestamp);
+  if (Number.isNaN(cacheTime.getTime())) {
+    return false;
+  }
+  return now.getTime() - cacheTime.getTime() <= 5 * 60 * 1e3;
 }
 function officialQuotaInfo(officialQuota, modelDisplay) {
   if (!officialQuota) {
@@ -642,38 +672,69 @@ function officialQuotaInfo(officialQuota, modelDisplay) {
   const keys = officialQuotaKeys(modelDisplay);
   const buckets = [];
   let sawKnownBucket = false;
-  for (const key of keys) {
+  for (const { key, label } of keys) {
     if (!Object.prototype.hasOwnProperty.call(officialQuota, key)) {
       continue;
     }
     sawKnownBucket = true;
     const bucket = officialQuota[key];
     if (Number.isFinite(bucket.remaining_fraction)) {
-      buckets.push(bucket);
+      const usagePct = usagePercent({
+        remainingFraction: bucket.remaining_fraction ?? 1,
+        resetTime: bucket.reset_time ?? ""
+      });
+      const reset = usagePct > 0 ? formatOfficialReset(bucket) : "";
+      buckets.push({ label, usagePct, reset });
     }
   }
   if (buckets.length === 0) {
-    return sawKnownBucket ? [0, "", false] : null;
+    return sawKnownBucket ? noQuota() : null;
   }
-  let selected = buckets[0];
-  for (const bucket of buckets.slice(1)) {
-    if ((bucket.remaining_fraction ?? 1) < (selected.remaining_fraction ?? 1)) {
-      selected = bucket;
+  return quotaDisplay(buckets);
+}
+function mergeFreshCacheQuota(official, cache) {
+  if (!cache.hasQuota || cache.windows.length === 0) {
+    return official;
+  }
+  const cacheWindow = cache.windows[0];
+  const windows = official.windows.map((window) => {
+    if (window.label !== "5h") {
+      return window;
+    }
+    if (cacheWindow.usagePct <= window.usagePct) {
+      return window;
+    }
+    return { ...window, usagePct: cacheWindow.usagePct, reset: cacheWindow.reset };
+  });
+  const hasFiveHourWindow = windows.some((window) => window.label === "5h");
+  if (!hasFiveHourWindow && cacheWindow.usagePct > official.usagePct) {
+    return cache;
+  }
+  return quotaDisplay(windows);
+}
+function quotaDisplay(windows) {
+  let selected = windows[0] ?? { label: "", usagePct: 0, reset: "" };
+  for (const window of windows.slice(1)) {
+    if (window.usagePct > selected.usagePct) {
+      selected = window;
     }
   }
-  const usagePct = usagePercent({
-    remainingFraction: selected.remaining_fraction ?? 1,
-    resetTime: selected.reset_time ?? ""
-  });
-  const reset = usagePct > 0 ? formatResetClock(selected.reset_time ?? "") : "";
-  return [usagePct, reset, true];
+  return {
+    usagePct: selected.usagePct,
+    reset: selected.reset,
+    hasQuota: windows.length > 0,
+    windows
+  };
+}
+function noQuota() {
+  return { usagePct: 0, reset: "", hasQuota: false, windows: [] };
 }
 function officialQuotaKeys(modelDisplay) {
   const normalized = modelDisplay.toLowerCase();
   if (normalized.includes("claude") || normalized.includes("gpt") || normalized.includes("oss")) {
-    return ["3p-5h", "3p-weekly"];
+    return [{ key: "3p-5h", label: "5h" }, { key: "3p-weekly", label: "W" }];
   }
-  return ["gemini-5h", "gemini-weekly"];
+  return [{ key: "gemini-5h", label: "5h" }, { key: "gemini-weekly", label: "W" }];
 }
 function formatResetClock(reset) {
   if (reset === "") {
@@ -684,6 +745,26 @@ function formatResetClock(reset) {
     return "";
   }
   return `${pad2(target.getHours())}:${pad2(target.getMinutes())}`;
+}
+function formatOfficialReset(bucket) {
+  if (Number.isFinite(bucket.reset_in_seconds) && (bucket.reset_in_seconds ?? 0) > 0) {
+    return formatResetDuration(bucket.reset_in_seconds ?? 0);
+  }
+  return formatResetClock(bucket.reset_time ?? "");
+}
+function formatResetDuration(seconds) {
+  let totalMinutes = Math.max(0, Math.trunc(seconds / 60));
+  const days = Math.trunc(totalMinutes / (24 * 60));
+  totalMinutes -= days * 24 * 60;
+  const hours = Math.trunc(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) {
+    return `${formatInt(days)}d ${formatInt(hours)}h`;
+  }
+  if (hours > 0) {
+    return `${formatInt(hours)}h ${formatInt(minutes)}m`;
+  }
+  return `${formatInt(minutes)}m`;
 }
 function contextValue(config, ctx, pct) {
   const tokens = tokenDetail(ctx);
@@ -713,12 +794,28 @@ function contextPercent(ctx) {
   }
   return clampInt(Math.trunc(upstream + 0.5));
 }
-function usageLabel(config, usagePct, withBar) {
+function usageLabel(config, quota, withBar) {
+  if (quota.windows.length > 1) {
+    return `Usage ${quota.windows.map((window) => usageWindowLabel(config, window, withBar)).join(" |  ")}`;
+  }
   let label = "Usage ";
   if (withBar && config.showProgressBar) {
-    label += `${usageBar(config, usagePct)} `;
+    label += `${usageBar(config, quota.usagePct)} `;
   }
-  return label + usageValue(config, usagePct);
+  return label + usageValue(config, quota.usagePct);
+}
+function usageWindowLabel(config, window, withBar) {
+  let label = "";
+  if (withBar && config.showProgressBar) {
+    label += `${usageBar(config, window.usagePct, 10)} `;
+  }
+  return label + usageWindowValue(config, window.usagePct) + inlineResetSuffix(config, window.reset);
+}
+function usageWindowValue(config, usagePct) {
+  if (config.usageValue === "remaining") {
+    return `${formatInt(100 - usagePct)}%`;
+  }
+  return `${formatInt(usagePct)}%`;
 }
 function usageValue(config, usagePct) {
   if (config.usageValue === "remaining") {
@@ -726,14 +823,14 @@ function usageValue(config, usagePct) {
   }
   return `${formatInt(usagePct)}%`;
 }
-function usageBar(config, usagePct) {
+function usageBar(config, usagePct, width = 8) {
   const fillPct = config.usageValue === "remaining" ? 100 - usagePct : usagePct;
-  return progressBarWithColor(fillPct, usagePct, 8, config.color);
+  return progressBarWithColor(fillPct, usagePct, width, config.color);
 }
 function tokenDetail(ctx) {
-  const total = (ctx?.total_input_tokens ?? 0) + (ctx?.total_output_tokens ?? 0);
+  const total = ctx?.total_input_tokens;
   const windowSize = ctx?.context_window_size ?? 0;
-  if (total <= 0 || windowSize <= 0) {
+  if (typeof total !== "number" || total <= 0 || windowSize <= 0) {
     return "";
   }
   return `(${formatTokens(total)}/${formatTokens(windowSize)})`;
@@ -844,7 +941,9 @@ function title(raw) {
 }
 
 // src/main.ts
-var version = "0.1.5";
+var version = "0.1.6";
+var consumedQuotaRefreshMs = 15 * 1e3;
+var untouchedQuotaRefreshMs = 30 * 1e3;
 function renderStatusline(input, cfg = defaultConfig(), cache = null) {
   if (input.trim() === "") {
     return "agy-hud";
@@ -978,8 +1077,14 @@ async function runCli(args, deps = {}) {
     const payload = parsePayload(raw);
     const cachePath = quotaCachePath();
     const [cache, ok] = load(cachePath);
-    triggerBackgroundRefreshIfNeeded(cachePath, ok ? cache : null, payload);
-    stdout(`${renderStatusline(raw, cfg, ok ? cache : null)}
+    const displayCache = await refreshQuotaBeforeRenderIfNeeded(
+      cachePath,
+      ok ? cache : null,
+      payload,
+      deps.refreshQuota ?? refreshQuota
+    );
+    triggerBackgroundRefreshIfNeeded(cachePath, displayCache, payload);
+    stdout(`${renderStatusline(raw, cfg, displayCache)}
 `);
     return 0;
   }
@@ -1030,6 +1135,46 @@ function readStdin(stdin) {
     });
   });
 }
+async function refreshQuotaBeforeRenderIfNeeded(cachePath, cache, payload, refresh) {
+  if (!shouldRefreshBeforeRender(cachePath, payload, /* @__PURE__ */ new Date())) {
+    return cache;
+  }
+  try {
+    const result = await refresh(cachePath);
+    if (!result.ok) {
+      return cache;
+    }
+    const [freshCache, ok] = load(cachePath);
+    if (!ok) {
+      return cache;
+    }
+    saveStatuslineRefreshState(
+      refreshStatePath(cachePath),
+      mergeStatuslineRefreshState(loadStatuslineRefreshState(refreshStatePath(cachePath)), payload, true, /* @__PURE__ */ new Date())
+    );
+    return freshCache;
+  } catch {
+    return cache;
+  }
+}
+function shouldRefreshBeforeRender(cachePath, payload, now) {
+  if (cachePath === "" || !payload) {
+    return false;
+  }
+  const prevState = loadStatuslineRefreshState(refreshStatePath(cachePath));
+  const prevAgentState = prevState?.agentState ?? "";
+  const agentState = normalizeAgentState(payload.agent_state);
+  if (agentState !== "idle" || prevAgentState === "" || prevAgentState === "idle") {
+    return false;
+  }
+  if (prevState?.lastActivityAt) {
+    const last = new Date(prevState.lastActivityAt);
+    if (!Number.isNaN(last.getTime()) && now.getTime() - last.getTime() < 5 * 1e3) {
+      return false;
+    }
+  }
+  return true;
+}
 function triggerBackgroundRefreshIfNeeded(cachePath, cache, payload = null) {
   const now = /* @__PURE__ */ new Date();
   const statePath = refreshStatePath(cachePath);
@@ -1068,7 +1213,7 @@ function quotaCacheNeedsRefresh(cache, now = /* @__PURE__ */ new Date()) {
     if (Number.isNaN(cacheTime.getTime())) {
       return true;
     }
-    const interval = cacheLooksUntouched(cache) ? 30 * 1e3 : 5 * 60 * 1e3;
+    const interval = cacheLooksUntouched(cache) ? untouchedQuotaRefreshMs : consumedQuotaRefreshMs;
     if (now.getTime() - cacheTime.getTime() > interval) {
       return true;
     }
@@ -1136,9 +1281,6 @@ function shouldTriggerActivityRefresh(cache, payload, prevState, now) {
   if (!payload) {
     return false;
   }
-  if (!cacheLooksUntouched(cache) && !activeModelQuotaLooksUntouched(cache, payload)) {
-    return false;
-  }
   const conversationId = (payload.conversation_id ?? "").trim();
   const agentState = normalizeAgentState(payload.agent_state);
   const prevConversationId = prevState?.conversationId ?? "";
@@ -1146,6 +1288,12 @@ function shouldTriggerActivityRefresh(cache, payload, prevState, now) {
   const conversationChanged = conversationId !== "" && conversationId !== prevConversationId;
   const becameActive = agentState !== "" && agentState !== "idle" && agentState !== prevAgentState;
   const settledAfterActive = agentState === "idle" && prevAgentState !== "" && prevAgentState !== "idle";
+  if (settledAfterActive) {
+    return true;
+  }
+  if (!cacheLooksUntouched(cache) && !activeModelQuotaLooksUntouched(cache, payload)) {
+    return false;
+  }
   if (!conversationChanged && !becameActive && !settledAfterActive) {
     return false;
   }

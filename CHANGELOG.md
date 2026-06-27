@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.6
+
+- Show both 5-hour and weekly quota windows when Antigravity provides both buckets.
+- Refresh quota once before rendering when active work settles back to idle, so the next HUD redraw is not one turn behind.
+- Prefer the current `agy` loopback server over stale `language_server` quota data.
+- Fixed `agy` process detection when the process has no extra arguments.
+- Fixed context token detail to match the input-token basis used by the context percentage.
+- Updated English and Chinese docs for dual-window quota display and refresh behavior.
+- Documented that Windows is not currently supported.
+
 ## 0.1.5
 
 - Fixed git branch display when Antigravity is operating inside a linked worktree.

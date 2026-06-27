@@ -12,6 +12,7 @@
 
 - 支持插件的 Antigravity CLI
 - `PATH` 中可用的 Node.js 18+
+- macOS 或 Linux。目前暂不支持 Windows,因为插件 hook/install 流程尚未在 Windows 上验证。
 
 `agy-hud` 以 Antigravity 插件归档包分发,不是 npm 包。归档包内已包含打包后的运行脚本 `dist/agy-hud.js`,所以插件用户不需要运行 `npm install`。
 
@@ -53,7 +54,7 @@ npm test
 
    ```
     3.5 Flash High |  Pro │  agy-hud │  main
-   Context █░░░░░░░ 12% (130k/1M) │ Usage ███░░░░░ 40% left ↻ Reset 17:33 │ Thinking
+   Context ░░░░░░░░░░ 0% │ Usage ████████░░ 82% (↻ 1h 52m) |  █░░░░░░░░░ 13% (↻ 4d 21h)
    ```
 
    向用户说明各部分的含义:模型与套餐档位、工作目录、git 分支、带 token 明细的上下文进度条(`context_value: both`)、连续的配额剩余进度条、本地重置时间,以及 agent 状态。默认配置使用更紧凑的 `percent` 上下文显示。图标需要 Nerd Font —— 没有时会显示成方框 —— HUD 在窄终端下也会平滑降级。
@@ -80,7 +81,7 @@ agy-hud version
 agy-hud quota refresh
 ```
 
-`statusline` 从标准输入以及本地配置/缓存文件渲染。如果配额缓存缺失或超过 5 分钟,它可能会启动一个 detached 的后台 `quota refresh`,但前台 HUD 渲染不会等待网络或子进程工作。`quota refresh` 会向正在运行的 Antigravity 本地服务请求 `GetUserStatus`,写入脱敏后的配额缓存;如果找不到可用的本地服务,会以非零状态退出。
+`statusline` 从标准输入以及本地配置/缓存文件渲染。当 `agent_state` 从 active work 回到 `idle` 时,它会先做一次本地 loopback `quota refresh` 再渲染,让同一次 redraw 就能反映本轮回答后的配额。缺失或过期缓存仍会用后台刷新作为兜底。`quota refresh` 会向正在运行的 Antigravity 本地服务请求 `GetUserStatus`,写入脱敏后的配额缓存;如果找不到可用的本地服务,会以非零状态退出。
 
 ## 配置
 
@@ -118,11 +119,11 @@ agy-hud quota refresh
 - `show_agent_state`:显示来自标准输入的 `agent_state`,例如 `Idle`、`Thinking` 或 `Auth`。
 - `show_icons`:显示 Nerd Font 图标。如果你的终端字体把图标渲染成方框,设为 `false` 可回退到纯文本。
 - `context_value`:`percent`、`tokens` 或 `both`。默认为 `percent`,即上下文显示当前输入侧窗口占用率。存在 token 总量时,百分比和进度条会由 `total_input_tokens / context_window_size` 计算,避免最近一次长输出让 HUD 跳动。
-- `usage_value`:`remaining` 或 `percent`。默认为 `remaining`,即配额文字和进度条都显示剩余量,例如 `Usage ███░░░░░ 40% left ↻ Reset 17:33`。
+- `usage_value`:`remaining` 或 `percent`。默认为 `remaining`,即配额文字和进度条都显示剩余量。当 Antigravity 提供 5 小时和周两个窗口时,HUD 会按顺序分开显示各自的刷新倒计时,例如 `Usage ████████░░ 82% (↻ 1h 52m) |  █░░░░░░░░░ 13% (↻ 4d 21h)`。
 
 ## 配额缓存
 
-在 Antigravity CLI 1.0.8 及更新版本中,`agy-hud` 会优先读取 status-line payload 里的官方 `quota` 对象。旧版 CLI 或没有官方配额数据的 payload,会回退到本地配额缓存。默认缓存路径为:
+在 Antigravity CLI 1.0.8 及更新版本中,`agy-hud` 会优先读取 status-line payload 里的官方 `quota` 对象。如果 payload 同时包含 5 小时和周两个窗口,HUD 会按顺序分别显示,不再折叠成一个容易误解的数字。如果这个官方 bucket 仍然看起来完全未消耗,但新鲜的 active-model 缓存已经显示有消耗,`agy-hud` 会使用新鲜缓存,避免显示过期的 `100% left`。旧版 CLI 或没有官方配额数据的 payload,会回退到本地配额缓存。默认缓存路径为:
 
 ```text
 $HOME/.gemini/antigravity-cli/scratch/agy-hud/quota_cache.json
@@ -136,7 +137,7 @@ Antigravity 运行时,可以手动刷新这份回退缓存:
 agy-hud quota refresh
 ```
 
-刷新命令兼容两种已知的 Antigravity 本地服务形态:旧版 `language_server --csrf_token ...` 进程,以及当前的 `agy` loopback 服务。如果存在 CSRF token,它只会被用于 loopback `GetUserStatus` 请求。命令最终只保存下面这种脱敏缓存。正常的 `statusline` 渲染会读取该缓存,并在缓存过期时后台刷新。如果缓存仍然看起来完全未消耗(所有模型都是 `100% left`),新的会话或 agent 状态变化也会触发一次带去抖的即时后台刷新。
+刷新命令兼容两种已知的 Antigravity 本地服务形态:当前的 `agy` loopback 服务,以及旧版 `language_server --csrf_token ...` 进程,按这个顺序尝试。如果存在 CSRF token,它只会被用于 loopback `GetUserStatus` 请求。命令最终只保存下面这种脱敏缓存。正常的 `statusline` 渲染会读取该缓存,并在 active work 结束时刷新;同时保留过期缓存刷新作为兜底。如果缓存仍然看起来完全未消耗(所有模型都是 `100% left`),新的会话或 agent 状态变化也会触发一次带去抖的即时后台刷新。
 
 期望的(已脱敏)缓存结构:
 
@@ -153,11 +154,11 @@ agy-hud quota refresh
 }
 ```
 
-如果配额数据缺失,HUD 会直接省略 usage 区块,不会显示伪造的 limit。重置时间来自本地 API 的 `resetTime` 字段,并以本地时钟时间显示,因为 status-line hook 无法在没有重绘的情况下更新已经渲染出的倒计时。
+如果配额数据缺失,HUD 会直接省略 usage 区块,不会显示伪造的 limit。官方 quota payload 可以提供实时的 `reset_in_seconds`,所以双窗口配额会显示每个窗口自己的相对刷新倒计时。本地 fallback cache 仍然来自本地 API 的 `resetTime` 字段,并以本地时钟时间显示。
 
 ## 隐私与安全
 
-`agy-hud statusline` 从标准输入以及本地可选的配置/缓存文件渲染。它不会向外部传输状态栏 payload 数据。后台配额刷新只会访问本地 Antigravity loopback 服务。
+`agy-hud statusline` 从标准输入以及本地可选的配置/缓存文件渲染。它不会向外部传输状态栏 payload 数据。配额刷新只会访问本地 Antigravity loopback 服务。
 
 `agy-hud quota refresh` 只访问 loopback 上的本地 Antigravity 服务,不会打印 CSRF token、cookie 或原始 probe 响应。
 

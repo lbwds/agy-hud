@@ -44,7 +44,7 @@ export function parseLanguageServerInfo(psOutput: string): LanguageServerInfo | 
 export function parseAgyServerInfos(psOutput: string): LanguageServerInfo[] {
   const infos: LanguageServerInfo[] = [];
   for (const line of psOutput.split(/\r?\n/)) {
-    if (!/(^|\s)(?:\/\S+\/)?agy\s+--/.test(line)) {
+    if (!/(^|\s)(?:\/\S+\/)?agy(\s|$)/.test(line)) {
       continue;
     }
     const parts = line.trim().split(/\s+/);
@@ -120,7 +120,7 @@ export function buildQuotaCache(rawResponse: unknown, now: Date): { cache: unkno
 export async function refreshQuota(cachePath: string, runtime: ProbeRuntime = defaultRuntime()): Promise<RefreshResult> {
   const psOutput = runtime.ps();
   const languageServer = parseLanguageServerInfo(psOutput);
-  const candidates = languageServer ? [languageServer] : parseAgyServerInfos(psOutput);
+  const candidates = [...parseAgyServerInfos(psOutput), ...(languageServer ? [languageServer] : [])];
   if (candidates.length === 0) {
     return { ok: false, message: "No running language_server or agy quota server found." };
   }
